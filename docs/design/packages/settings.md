@@ -5,24 +5,24 @@ Package directory: `packages/settings`
 
 ## 1. Role
 
-The single source of truth for the user-facing configuration: the flat `VueHtmlBridgeSettings` schema, its defaults, layer merging, runtime validation, decomposition into per-package options, and loading of the shared workspace configuration files.
+The single source of truth for the user-facing configuration: the settings schema (input and resolved forms), its defaults, layer resolution (validation + merging), decomposition into per-package options, loading of the shared workspace configuration files, and the published JSON schema.
 
 Two hosts consume the same settings — the language server (via LSP `workspace/configuration` plus workspace files) and the CLI (via flags plus the same workspace files). Defining the schema and its semantics once is what guarantees the two hosts cannot drift. This package exists because the CLI was added; it resolves the former analyzer.md open question about splitting out a config loader for standalone analyzer consumers.
 
 ### In scope
 
-- The `VueHtmlBridgeSettings` / `ValidatorSetting` types and default values
-- Merging an ordered stack of settings layers (host layer on top)
-- Runtime validation: unknown-field warnings, invalid-type fallbacks
+- The input and resolved settings types, and the defaults table
+- `resolveSettings`: validating an ordered stack of raw layers and merging them
 - Decomposition into the options each package consumes
-- Discovery and parsing of `.vue-html-bridge.json` / `package.json#vueHtmlBridge`
-- Generating the published JSON schema (`schema.json`)
+- Discovery and parsing of `.vue-html-bridge.json` / `package.json#vueHtmlBridge`, and loading an explicit settings file given by path
+- Generating and publishing the JSON schema (`schema.json`)
 
 ### Out of scope
 
 - LSP protocol types and `workspace/configuration` fetching (language server)
-- Command-line flag parsing (CLI; its `options.ts` maps flags onto a settings layer)
+- Command-line flag parsing (CLI; its `options.ts` maps flags onto an input layer)
 - Interpreting adapter-specific `validators[].settings` (opaque pass-through; validated where the Phase 1 decision placed it)
+- Loading adapter packages (adapter-loader.md)
 - Watching configuration files (each host owns its watcher/trigger)
 
 ## 2. Dependencies
@@ -33,79 +33,140 @@ None inside the monorepo at runtime. The decomposed option shapes (for example c
 
 This is the canonical definition. language-server.md §9.2 and cli.md §4 describe how each host layers values on top of it; they do not redefine the shape.
 
+The input form and the resolved form are distinct types. Every layer — a JSON file, LSP `workspace/configuration`, CLI flags — provides the input form, where everything is optional. Consumers only ever see the resolved form.
+
 ```ts
-export interface VueHtmlBridgeSettings {
-  enabled: boolean;
-  include: readonly string[]; // default: ["**/*.vue"]
-  exclude: readonly string[];
-  validateOnChange: boolean; // default: true
-  validateOnSave: boolean; // default: true
-  debounceMs: number; // default: 200
-  maxConcurrency: number; // if not set, uses the analyzer default (based on CPU count; monorepo.md §10.3)
-  warnVariantCount: number; // if not set, uses the core default of 256 (core.md §2.1)
-  customElements: readonly string[]; // default: []. Passed to core's GenerateOptions.customElements
-  externalAdapters: "disabled" | "trusted-workspace-only";
-  validators: readonly ValidatorSetting[];
+/** What one configuration layer provides. All fields optional. */
+export interface VueHtmlBridgeSettingsInput {
+  enabled?: boolean;
+  include?: readonly string[];
+  exclude?: readonly string[];
+  validateOnChange?: boolean;
+  validateOnSave?: boolean;
+  debounceMs?: number;
+  maxConcurrency?: number;
+  warnVariantCount?: number;
+  customElements?: readonly string[];
+  externalAdapters?: "disabled" | "trusted-workspace-only";
+  validators?: readonly ValidatorSettingInput[];
 }
 
-export interface ValidatorSetting {
+export interface ValidatorSettingInput {
+  adapter: string;
+  enabled?: boolean; // default: true
+  settings?: unknown;
+}
+
+/** The merged result every consumer receives. */
+export interface ResolvedVueHtmlBridgeSettings {
+  enabled: boolean;
+  include: readonly string[];
+  exclude: readonly string[];
+  validateOnChange: boolean;
+  validateOnSave: boolean;
+  debounceMs: number;
+  /** undefined = delegate to the analyzer's CPU-count-based default (monorepo.md §10.3). */
+  maxConcurrency: number | undefined;
+  /** undefined = delegate to core's default of 256 (core.md §2.1). */
+  warnVariantCount: number | undefined;
+  customElements: readonly string[];
+  externalAdapters: "disabled" | "trusted-workspace-only";
+  validators: readonly ResolvedValidatorSetting[];
+}
+
+export interface ResolvedValidatorSetting {
   adapter: string;
   enabled: boolean;
   settings?: unknown;
 }
 ```
 
+Defaults where a package downstream owns the real value (`maxConcurrency`, `warnVariantCount`) are represented as `undefined` in the resolved form, not as a copied number or a `"auto"` sentinel: a JSON layer expresses "delegate" simply by omitting the field, and the resolved type makes the delegation visible to consumers instead of baking a second copy of another package's default into this one.
+
+### 3.1 Defaults and constraints
+
+| Field | Default | Constraints |
+| --- | --- | --- |
+| `enabled` | `true` | boolean |
+| `include` | `["**/*.vue"]` | non-empty array of glob strings |
+| `exclude` | `["**/node_modules/**"]` | array of glob strings |
+| `validateOnChange` | `true` | boolean |
+| `validateOnSave` | `true` | boolean |
+| `debounceMs` | `200` | integer, `0`–`60000` |
+| `maxConcurrency` | `undefined` (analyzer's CPU-count default) | integer, `>= 1` |
+| `warnVariantCount` | `undefined` (core's default of 256) | integer, `>= 1` |
+| `customElements` | `[]` | array of tag-name/glob strings |
+| `externalAdapters` | `"disabled"` | enum |
+| `validators` | `[{ adapter: "markuplint", enabled: true }]` | see below |
+
+`validators[].adapter` is the entry key and is part of the public contract: the built-in adapter is addressed by its stable adapter **id** (`"markuplint"`, validator-api §3); an external adapter by its npm package specifier. The default enables the built-in Markuplint adapter by id. Two entries with the same `adapter` string in one layer are a `duplicate-adapter` error issue (the first entry wins). How the two identifier kinds are told apart and gated at load time is adapter-loader.md's contract.
+
+`enabled`, `validateOnChange`, `validateOnSave`, and `debounceMs` describe automatic editor-session behavior. They are part of the shared schema (a workspace file sets them once for both hosts), but a one-shot host ignores them; cli.md §4.2 documents that. Grouping these editor-only fields under a nested `editor: { ... }` section is a candidate for a future schema version; in v1 the schema stays flat.
+
 `$schema` and `version` are reserved at the top level, so a schema version can be introduced later without a breaking change.
 
-`enabled`, `validateOnChange`, `validateOnSave`, and `debounceMs` describe automatic editor-session behavior. They are part of the shared schema (a workspace file sets them once for both hosts), but a one-shot host ignores them; cli.md §4.2 documents that.
+## 4. Resolution: validation + merging
 
-## 4. Merging and validation
+Resolution is one normative operation, so the order of validation and merging cannot vary between hosts.
 
 ```ts
-export const defaultSettings: VueHtmlBridgeSettings;
-
 export interface SettingsIssue {
   severity: "warning" | "error";
+  /** Machine-readable kind: "unknown-field" | "invalid-type" | "out-of-range" |
+   *  "duplicate-adapter" | "file-missing" | "file-unreadable" | "parse-error" */
+  code: string;
   path: string; // e.g. "validators[0].adapter"
   message: string;
+  /** Absolute path of the settings file the layer came from, when applicable. */
+  sourcePath?: string;
 }
 
-export function validateSettings(input: unknown): {
-  settings: Partial<VueHtmlBridgeSettings>;
+export function resolveSettings(
+  layers: readonly unknown[], // lowest precedence first; raw, unvalidated
+): {
+  settings: ResolvedVueHtmlBridgeSettings;
   issues: readonly SettingsIssue[];
 };
-
-export function mergeSettings(
-  layers: readonly Partial<VueHtmlBridgeSettings>[], // lowest precedence first
-): VueHtmlBridgeSettings;
 ```
 
-- Objects are merged field by field; arrays are fully replaced by the higher-precedence layer. There is no array concatenation.
-- An unknown field produces a `warning` issue and is dropped.
-- An invalid type produces an `error` issue, and the field falls back to the known safe default — a broken settings file degrades analysis; it never crashes the host.
-- Merging is pure and deterministic; hosts decide what to do with issues (the language server logs and reports per workspace, the CLI prints to stderr and factors errors into its exit code).
+Semantics, in order:
 
-The host supplies its own top layer: the language server passes the `vueHtmlBridge` section from `workspace/configuration`; the CLI passes the layer built from flags. Layers below that are the same for both hosts (§5, then defaults).
+1. **Each layer is validated independently first.** An unknown field is a `warning` issue and is dropped from that layer. A field with an invalid type or out-of-range value is an `error` issue, and that field is **pinned to its package default for the whole resolution** — an invalid value is not treated as absent, so a lower-precedence layer can never silently take effect in its place. This is deliberately fail-closed: for a trust-sensitive field like `externalAdapters`, garbage in a higher layer resolves to the safe default (`"disabled"`), never to a lower layer's `"trusted-workspace-only"`.
+2. **Validated layers are then merged**, lowest precedence first: objects field by field, arrays fully replaced by the higher-precedence layer. There is no array concatenation.
+3. Resolution is pure and deterministic. What to do with issues is the host's decision, and the two hosts intentionally differ:
+   - The **language server** continues with the resolved settings and reports the issues once per workspace — an invalid settings file degrades analysis, it never turns the editor dark (language-server.md §9.2).
+   - The **CLI** treats `error` issues as fatal: it prints them to stderr and exits with code 2 before analyzing anything — CI must fail loudly on misconfiguration. `warning` issues go to stderr and the run continues (cli.md §8).
 
-## 5. Workspace configuration files
+The CLI/LSP parity tests compare both outputs of `resolveSettings` — the resolved settings and the issue list — for the same layer stack, so the shared semantics are pinned, not assumed.
+
+## 5. Settings files
 
 ```ts
 export interface SettingsFileResult {
-  settings: Partial<VueHtmlBridgeSettings>;
+  settings: VueHtmlBridgeSettingsInput;
   issues: readonly SettingsIssue[];
   /** Absolute path of the file the settings came from, for watching and messages. */
   sourcePath?: string;
 }
 
+/** Discovery inside one workspace root. */
 export function loadWorkspaceSettingsFile(
   workspaceRoot: string,
   fileSystem: SettingsFileSystem, // injected for testability
 ): Promise<SettingsFileResult>;
+
+/** An explicit settings file given by path (e.g. the CLI's --config). */
+export function loadSettingsFile(
+  filePath: string, // absolute; the host resolves relative input (the CLI resolves from cwd) before calling
+  fileSystem: SettingsFileSystem,
+): Promise<SettingsFileResult>;
 ```
 
 - Discovery order inside one workspace root: `.vue-html-bridge.json`, then the `vueHtmlBridge` field of `package.json`. The first hit wins; they are not merged with each other.
-- A parse error is returned as an `error` issue with the file path; the loader never throws for content problems. Hosts decide whether to keep a previous known-good state (language-server.md §9.3) or fail the run (cli.md §8).
-- The loader reads only these known filenames inside the given root. It never walks upward past the workspace root and never executes code — the shared bridge settings are JSON-only by design.
+- An explicit file loaded by `loadSettingsFile` must contain the settings object itself — the same shape as `.vue-html-bridge.json`. A `package.json` passed here is not special-cased; the `vueHtmlBridge` extraction exists only in workspace discovery.
+- Failure kinds are distinguished as issue codes, all with `sourcePath` set: `file-missing`, `file-unreadable`, `parse-error`. The loaders never throw for content problems. Whether a failure is fatal is the host's decision: for discovery, a missing file is not an issue at all (defaults apply); for an explicit file, the CLI treats every one of these as fatal (cli.md §4.1), and the language server may keep a previous known-good state (language-server.md §9.3).
+- Any relative path inside settings values (for example an adapter's `configFile`) resolves against the **workspace root**, never against the settings file's own location. Adapter settings are opaque here; this rule is the documented convention adapters follow (adapter-markuplint.md §2).
+- The loaders read only the given root/path. They never walk upward past the workspace root and never execute code — the shared bridge settings are JSON-only by design.
 
 ## 6. Decomposition
 
@@ -113,7 +174,7 @@ export function loadWorkspaceSettingsFile(
 export interface DecomposedSettings {
   generateOptions: GenerateOptions; // structural; contract-tested against core
   analyzer: { maxConcurrency?: number };
-  validators: readonly ValidatorSetting[];
+  validators: readonly ResolvedValidatorSetting[];
   host: {
     enabled: boolean;
     include: readonly string[];
@@ -126,41 +187,56 @@ export interface DecomposedSettings {
 }
 
 export function decomposeSettings(
-  settings: VueHtmlBridgeSettings,
+  settings: ResolvedVueHtmlBridgeSettings,
 ): DecomposedSettings;
 ```
+
+A delegated field (`maxConcurrency`, `warnVariantCount` = `undefined`) is omitted from the decomposed options, so the downstream package's own default applies — this package never copies another package's default value.
 
 | Settings field | Consumed by |
 | --- | --- |
 | `warnVariantCount`, `customElements` | core's `GenerateOptions` (through the analyzer's `generateOptions`) |
 | `maxConcurrency` | analyzer's `CreateWorkspaceAnalyzerOptions` / `ReconfigureOptions` |
-| `validators[].settings` | each adapter's `AdapterSessionContext.settings` |
+| `validators` | adapter loading (adapter-loader.md), then each adapter's `AdapterSessionContext.settings` |
 | `enabled`, `include`/`exclude`, `validateOn*`, `debounceMs`, `externalAdapters` | the host (language server or CLI) |
 
 ## 7. JSON schema
 
-`schema.json` is generated from this package's definition and pinned by a golden test. The language-server package continues to ship a copy so existing `$schema` references (`./node_modules/@vue-html-bridge/language-server/schema.json`) keep working; the copy is produced at build time from this package, never edited by hand.
+`schema.json` is generated from this package's definition (the input form, since that is what users write), pinned by a golden test, and **published as this package's own export**:
+
+```jsonc
+// package.json (excerpt)
+{
+  "exports": {
+    ".": "./dist/index.js",
+    "./schema.json": "./schema.json"
+  }
+}
+```
+
+The canonical `$schema` reference is `./node_modules/@vue-html-bridge/settings/schema.json`. It must resolve in any installation that can run the bridge — including a CLI-only project that does not depend on the language server. The language-server package ships a copy as a backward-compatibility alias for existing `$schema` references; that copy is produced at build time from this package, never edited by hand.
 
 ## 8. Tests
 
-1. Defaults: `mergeSettings([])` equals `defaultSettings`, and every documented default value matches.
+1. Defaults: `resolveSettings([])` equals the §3.1 table, including the delegated `undefined` values and the default `validators` entry.
 2. Merge matrix: field-by-field object merge, full array replacement, layer precedence order.
-3. Validation: unknown field → warning + dropped; invalid type per field → error + safe default; `$schema`/`version` accepted and ignored.
-4. Loader: discovery order, first-hit-wins, parse error → issue with `sourcePath`, no upward traversal.
-5. Decomposition table parity: a shared fixture asserts the §6 table; the same fixture is reused by the language-server and CLI test suites so a new field cannot be routed inconsistently.
-6. Contract tests: the structural `GenerateOptions` shape accepted by core, and the analyzer options shape, match this package's declarations.
-7. `schema.json` golden: regeneration is byte-identical; a schema change requires an intentional golden update.
+3. Validation: unknown field → warning + dropped; invalid type / out-of-range per field → error + pinned to default; `$schema`/`version` accepted and ignored; `duplicate-adapter` detection.
+4. Pinning beats lower layers: an invalid `externalAdapters` in the top layer resolves to `"disabled"` even when a lower layer validly sets `"trusted-workspace-only"`, with an `error` issue.
+5. Discovery loader: order, first-hit-wins, parse error → issue with `sourcePath`, no upward traversal.
+6. Explicit-file loader: settings-object-only format (no `package.json` extraction), `file-missing` / `file-unreadable` / `parse-error` distinguished, absolute `sourcePath`.
+7. Decomposition table parity: a shared fixture asserts the §6 table, including that delegated fields are omitted; the same fixture is reused by the language-server and CLI test suites so a new field cannot be routed inconsistently.
+8. Contract tests: the structural `GenerateOptions` shape accepted by core, and the analyzer options shape, match this package's declarations.
+9. `schema.json` golden: regeneration is byte-identical; a schema change requires an intentional golden update. The export path `@vue-html-bridge/settings/schema.json` resolves from a consumer package.
 
 ## 9. Proposed internal module layout
 
 ```text
 src/
 ├── index.ts
-├── schema.ts       # types + reserved fields
-├── defaults.ts
-├── validate.ts
-├── merge.ts
+├── schema.ts       # input/resolved types + reserved fields
+├── defaults.ts     # the §3.1 table
+├── resolve.ts      # per-layer validation + merge (the §4 semantics)
 ├── decompose.ts
-├── loader.ts       # workspace file discovery/parsing (fs injected)
+├── loader.ts       # workspace discovery + explicit file (fs injected)
 └── json-schema.ts  # schema.json generation
 ```

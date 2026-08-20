@@ -54,7 +54,7 @@ The package also exposes a library entry point, so integration tests can use an 
 export interface StartLanguageServerOptions {
   connection: Connection;
   fileSystem?: ServerFileSystem;
-  moduleLoader?: AdapterModuleLoader;
+  moduleResolver?: AdapterModuleResolver; // passed through to @vue-html-bridge/adapter-loader
   logger?: ServerLogger;
 }
 
@@ -70,7 +70,8 @@ language-server
   ├── @vue-html-bridge/analyzer
   ├── @vue-html-bridge/adapter-markuplint
   ├── @vue-html-bridge/validator-api (runtime adapter validation)
-  ├── @vue-html-bridge/settings (schema, merge, decomposition, workspace-file loading)
+  ├── @vue-html-bridge/adapter-loader (shared external-adapter loading and trust gating)
+  ├── @vue-html-bridge/settings (schema, resolution, decomposition, workspace-file loading)
   └── vscode-languageserver / vscode-languageserver-textdocument
 ```
 
@@ -111,11 +112,11 @@ export interface VueHtmlBridgeInitializationOptions {
   workspaceTrusted?: boolean; // default: false
 
   /** Initial values, used when the client cannot fetch explicit settings yet. */
-  settings?: Partial<VueHtmlBridgeSettings>;
+  settings?: VueHtmlBridgeSettingsInput;
 }
 ```
 
-LSP itself has no workspace trust protocol that all clients agree on, so permission to run external code must be given explicitly through initialization options or settings. If not specified, it defaults to false. Trust is required even when only the built-in Markuplint adapter is used, if that adapter needs to load the workspace's Markuplint JS config or plugins. In an untrusted workspace, the built-in Markuplint adapter runs with its bundled, safe default config. It does not load the workspace's config search, JS config, or plugins (the adapter settings force no `configFile` plus `searchConfig: false`), and the server shows one notice per workspace saying that the workspace settings are being ignored. No external adapters are loaded.
+LSP itself has no workspace trust protocol that all clients agree on, so permission to run external code must be given explicitly through initialization options or settings. If not specified, it defaults to false. Trust is required even when only the built-in Markuplint adapter is used, if that adapter needs to load the workspace's Markuplint JS config or plugins. In an untrusted workspace, the built-in Markuplint adapter runs with its bundled, safe default config. It does not load the workspace's config search, JS config, or plugins (the adapter settings force no `configFile` plus `searchConfig: false`), and the server shows one notice per workspace saying that the workspace validator configuration and external adapters are being ignored (host-neutral bridge settings such as `include`/`exclude` still apply). No external adapters are loaded.
 
 ## 5. Position encoding
 
@@ -289,7 +290,7 @@ At a position with no diagnostic, the server returns `null`. It does not return 
 
 ### 9.2 Settings
 
-The settings schema is the shared flat `VueHtmlBridgeSettings`, owned by `@vue-html-bridge/settings` (settings.md §3) together with its defaults, layer merging, validation, and decomposition into per-package options. The language server does not redefine any of that; this section covers only what is LSP-specific.
+The settings schema is the shared flat pair `VueHtmlBridgeSettingsInput` / `ResolvedVueHtmlBridgeSettings`, owned by `@vue-html-bridge/settings` (settings.md §3) together with its defaults, layer resolution, and decomposition into per-package options. The language server does not redefine any of that; this section covers only what is LSP-specific.
 
 Settings precedence (the host layer of settings.md §4):
 
@@ -297,7 +298,7 @@ Settings precedence (the host layer of settings.md §4):
 2. `.vue-html-bridge.json` or `package.json#vueHtmlBridge`, loaded through the shared loader (settings.md §5)
 3. Defaults
 
-Merge and validation semantics are those of `mergeSettings` / `validateSettings` (settings.md §4): objects merge field by field, arrays are fully replaced by the higher-precedence value, an unknown field produces a warning, and an invalid type is a configuration error that falls back to a known safe default. The server reports the returned issues once per workspace via `window/logMessage` / `window/showMessage`.
+Resolution semantics are those of `resolveSettings` (settings.md §4): each layer is validated first (an unknown field warns and is dropped; an invalid value is an error and is pinned to the package default for the whole resolution), then the layers merge with full array replacement. The server always continues with the resolved settings — a broken settings file degrades analysis, it never turns the editor dark — and reports the returned issues once per workspace via `window/logMessage` / `window/showMessage`. (The CLI intentionally differs: error issues abort its run — cli.md §8.)
 
 The server routes values with `decomposeSettings` (settings.md §6): `warnVariantCount` / `customElements` to core's `GenerateOptions` through the analyzer; `maxConcurrency` to the analyzer's `CreateWorkspaceAnalyzerOptions` / `ReconfigureOptions`; `validators[].settings` to each adapter's `AdapterSessionContext.settings`; and the host fields (`enabled`, `include`/`exclude`, `validateOn*`, `debounceMs`, `externalAdapters`) to its own scheduling and trust logic. The CLI consumes the same schema with flags as its host layer (cli.md §4), so a new settings field must be routed in settings.md's decomposition table — pinned by a parity fixture both hosts' test suites reuse — rather than in either host.
 
@@ -330,7 +331,7 @@ An external adapter is loaded only if all of the following hold:
 
 The initial version does not accept an arbitrary absolute path, URL, or data URI. A package name must be a plain npm package specifier, similar to an allowlist. The server never automatically enumerates or executes anything under `node_modules`.
 
-Load failures (package cannot be resolved, runtime shape is invalid, `apiVersion` mismatch, or an import-time throw) are isolated per adapter. Only the failing adapter is disabled; the built-in adapter and other external adapters keep running. The server shows one notice per workspace, deduplicated by "package name + failure kind", and retries on `workspace/didChangeConfiguration`.
+These gates and the loading itself are implemented once in `@vue-html-bridge/adapter-loader` (adapter-loader.md), shared with the CLI, so the two hosts cannot drift on security-sensitive behavior. The server injects the built-in adapter, the workspace module resolver, and the trust state, and keeps only the presentation: it converts the loader's structured failures (resolution failure, invalid runtime shape, `apiVersion` mismatch, import-time throw, duplicate runtime id) into per-workspace notices deduplicated by the loader's `dedupeKey`, and retries on `workspace/didChangeConfiguration`. Failures stay isolated per adapter: only the failing adapter is disabled; the built-in adapter and other external adapters keep running.
 
 Dynamic import, Markuplint JS config/plugins, and a future Nu subprocess all amount to running workspace code. This is documented explicitly as a trust boundary, not a security boundary.
 
@@ -363,9 +364,9 @@ On `exit`, the server returns code 0 if shutdown already happened, and otherwise
 1. UTF-16/UTF-8/UTF-32 position conversion, CRLF, emoji, zero-width.
 2. Mapping from SourceDiagnostic to LSP Diagnostic: severity/code/source/related.
 3. Hover hit testing, ordering of multiple diagnostics, evidence truncation.
-4. Config merge, array replacement, invalid/unknown settings.
+4. Settings resolution via `resolveSettings`: layer order, array replacement, invalid/unknown fields, continue-with-fallback behavior.
 5. Workspace folder routing and the single-file restricted session.
-6. External adapter package specifier / runtime shape / trust validation.
+6. External adapter loading through the shared loader: the adapter-loader contract fixture, notice deduplication by `dedupeKey`, retry on configuration change.
 7. Candidate-pattern and concrete-target watcher snapshots are registered, refreshed, and mapped back to the adapter whose session must be recreated, without inspecting adapter-specific settings.
 
 ### 13.2 Protocol integration
@@ -437,7 +438,7 @@ src/
 │   ├── manager.ts
 │   └── session.ts
 └── adapters/
-    ├── loader.ts
+    ├── loading.ts    # thin wrapper over @vue-html-bridge/adapter-loader; failure → notice conversion
     └── trust.ts
 ```
 

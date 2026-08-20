@@ -65,11 +65,12 @@ The experience the user gets in the end is as follows:
 | `@vue-html-bridge/analyzer`           | Running core and adapters, reverse mapping, aggregation, caching       | LSP communication, validator-specific APIs             |
 | `@vue-html-bridge/adapter-markuplint` | Resolving Markuplint configuration, running it, converting coordinates | SFC mapping, LSP, cross-variant aggregation            |
 | `@vue-html-bridge/language-server`    | LSP lifecycle, settings, publishDiagnostics, hover                     | SFC conversion logic, direct use of the Markuplint API |
-| `@vue-html-bridge/settings`           | `VueHtmlBridgeSettings` schema, defaults, merge, validation, decomposition, workspace-file loading | LSP protocol, CLI flag parsing, interpreting adapter settings |
+| `@vue-html-bridge/settings`           | Settings schema (input/resolved), defaults, resolution, decomposition, settings-file loading | LSP protocol, CLI flag parsing, interpreting adapter settings |
 | `@vue-html-bridge/cli`                | One-shot analysis from the command line: flags, file enumeration, text/JSON output, exit codes | LSP, variant generation, reverse mapping, direct validator APIs |
+| `@vue-html-bridge/adapter-loader`     | Host-neutral adapter loading and trust gating shared by both hosts | Session lifecycle, settings schema, host-specific failure rendering |
 | `@vue-html-bridge/adapter-testkit`    | Adapter contract tests, fake adapter, fixture utilities                | Production runtime                                     |
 
-The goal for a future `@vue-html-bridge/adapter-vnu` is that it implements only `validator-api`, and can be added without changing `analyzer` or `language-server`.
+The goal for a future `@vue-html-bridge/adapter-vnu` is that it implements only `validator-api`, and can be added — through configuration alone — without changing core, `analyzer`, or either host (the language server or the CLI).
 
 ### 4.1 Dependencies
 
@@ -80,13 +81,15 @@ An arrow means "the left side depends on the right side."
   ├──> @vue-html-bridge/analyzer ──> vue-html-bridge
   │                               └─> @vue-html-bridge/validator-api
   ├──> @vue-html-bridge/adapter-markuplint ──> @vue-html-bridge/validator-api
-  ├──> @vue-html-bridge/validator-api   # runtime validation of external adapters
+  ├──> @vue-html-bridge/adapter-loader ──> @vue-html-bridge/validator-api
+  ├──> @vue-html-bridge/validator-api
   └──> @vue-html-bridge/settings
 
 @vue-html-bridge/cli
   ├──> @vue-html-bridge/analyzer
   ├──> @vue-html-bridge/adapter-markuplint
-  ├──> @vue-html-bridge/validator-api   # runtime validation of external adapters
+  ├──> @vue-html-bridge/adapter-loader
+  ├──> @vue-html-bridge/validator-api
   └──> @vue-html-bridge/settings
 
 @vue-html-bridge/adapter-testkit ──> @vue-html-bridge/validator-api
@@ -109,6 +112,7 @@ vue-html-bridge/
 │   ├── language-server/
 │   ├── settings/
 │   ├── cli/
+│   ├── adapter-loader/
 │   └── adapter-testkit/
 ├── examples/
 │   └── playground/
@@ -319,10 +323,10 @@ We do not merge arrays; a higher-priority value fully replaces a lower-priority 
 
 ```json
 {
-  "$schema": "./node_modules/@vue-html-bridge/language-server/schema.json",
+  "$schema": "./node_modules/@vue-html-bridge/settings/schema.json",
   "validators": [
     {
-      "adapter": "@vue-html-bridge/adapter-markuplint",
+      "adapter": "markuplint",
       "enabled": true,
       "settings": {
         "configFile": ".markuplintrc"
@@ -335,16 +339,16 @@ We do not merge arrays; a higher-priority value fully replaces a lower-priority 
 }
 ```
 
-The authoritative structure is the flat `VueHtmlBridgeSettings` owned by `@vue-html-bridge/settings` (settings.md §3). The schema, layer merging, validation, and decomposition into each package's options are implemented once there and consumed by both the language server and the CLI.
+The authoritative structure is the flat settings schema owned by `@vue-html-bridge/settings` — `VueHtmlBridgeSettingsInput` for what layers provide, `ResolvedVueHtmlBridgeSettings` for what consumers receive (settings.md §3). Layer resolution (validation + merging) and decomposition into each package's options are implemented once there and consumed by both the language server and the CLI.
 
 The numeric values in the JSON example above are illustrative. The authoritative defaults live in each package's own document (core.md §2.1, settings.md §3); we do not define them here.
 
-The initial release bundles the Markuplint adapter and enables it by default. External adapters are loaded under these rules (they apply to both hosts; the CLI's trust default differs — cli.md §5):
+The initial release bundles the Markuplint adapter and enables it by default. External adapters are loaded under these rules, implemented once in `@vue-html-bridge/adapter-loader` and shared by both hosts (the CLI's trust default differs — cli.md §5):
 
 - The package name must be given explicitly in the settings. We do not auto-discover adapters.
 - We use the workspace's module resolution; the host never searches arbitrary paths of its own.
 - Where workspace trust is not granted (an LSP client without trust, or a CLI run with `--untrusted`), we do not load external adapters.
-- An `apiVersion` mismatch is surfaced explicitly, either as a workspace-level diagnostic or via `window/showMessage`.
+- Load failures, including an `apiVersion` mismatch, are normalized into structured, host-neutral failures by the loader, and each host surfaces them its own way: a workspace-level diagnostic or `window/showMessage` in the language server; a stderr message plus a run-level error and exit code 2 in the CLI.
 - We document that loading an adapter package means executing code.
 
 ## 10. Performance, cancellation, and caching
@@ -398,8 +402,9 @@ We distinguish validator errors that return no range, configuration errors, and 
 - analyzer: reverse mapping using a fake adapter, two-stage aggregation, failure isolation, cache/cancel
 - Markuplint adapter: golden tests against the real engine, and configuration resolution
 - language server: JSON-RPC in-memory/stdio integration tests, version races, hover, multi-root
-- settings: merge/validation matrix, decomposition parity fixture, loader discovery, schema.json golden
-- cli: flag → settings parity, file enumeration, output goldens, exit codes, SIGINT, trust flags
+- settings: resolution matrix (validation + merge order), decomposition parity fixture, loader discovery and explicit-file loading, schema.json golden
+- cli: flag → settings parity, file enumeration and workspace boundary, output goldens (success/failure/interrupt), run outcome model and exit codes, signals, trust flags
+- adapter-loader: gate matrix, failure normalization/dedup, shared host contract fixture
 - adapter-testkit: self-tests, plus confirming that the Markuplint adapter passes the contract suite
 
 ### 12.2 Across the monorepo
@@ -413,7 +418,7 @@ We require a vertical-slice E2E test that runs a single `.vue` fixture all the w
 - Multiple origins from a synthesized attribute become related information. (Phase 2)
 - A stale result is not published when a `didChange` arrives mid-analysis. (Phase 2)
 - Core diagnostics are still published even when Markuplint fails. (Phase 1)
-- The CLI, run on the same fixture with equivalent settings, reports the same source diagnostics as the LSP path. (Phase 3)
+- The CLI, run on the same fixture with the same trust policy, the same resolved settings, and identical file content (disk vs. LSP buffer), reports the same source diagnostics as the LSP path — once trusted, and once in restricted (untrusted) mode. (Phase 3)
 
 ## 13. Release and compatibility
 
@@ -455,9 +460,10 @@ Phase 1 and Phase 2 are internal milestones, not published to npm. The "initial 
 ### Phase 3: Finalizing the adapter SDK and the CLI
 
 - Publishing adapter-testkit
-- External adapter loading and trust policy
+- `@vue-html-bridge/adapter-loader`: the shared external-adapter loading and trust gating both hosts consume (adapter-loader.md)
+- External adapter loading and trust policy in both hosts, on top of the shared loader
 - validator-api compatibility documentation, sample adapter
-- `@vue-html-bridge/cli`: the full flag surface with settings parity, text/JSON output, exit codes, and trust flags (cli.md), grown from the Phase 2 internal runner
+- `@vue-html-bridge/cli`: the full flag surface with settings parity, text/JSON output, the run outcome model, and trust flags (cli.md), grown from the Phase 2 internal runner
 
 ### Phase 4: Validating the design with a second adapter
 
