@@ -53,6 +53,7 @@ export interface WorkspaceAnalyzer {
 export interface ReconfigureOptions {
   adapters?: readonly ConfiguredAdapter[];
   generateOptions?: GenerateOptions;
+  maxConcurrency?: number;
   /**
    * Forces recreation of the specified adapter's session even when the
    * settings hash is unchanged. This is how the language server applies
@@ -462,6 +463,8 @@ The cache belongs to a session (session-scoped). Config discovery and overrides 
 
 - An adapter whose settings hash changed, based on `adapters` / `generateOptions`.
 - An adapter listed in `invalidateAdapters`. This forces recreation even when the settings hash is unchanged. A config-file change that does not change the settings object (for example, editing the contents of `.markuplintrc`) can only reach the session through this route — so the language server must always pass this when it receives a watch event (language-server.md §9.3).
+
+A `maxConcurrency` change updates the workspace validation queue for subsequently scheduled work. It does not recreate adapter sessions or discard their caches by itself.
 
 The replacement follows these steps:
 

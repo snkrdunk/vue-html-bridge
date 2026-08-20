@@ -323,7 +323,7 @@ This flat `VueHtmlBridgeSettings` shape is the single source of truth for the ex
 | Settings field                                                                  | Passed to                                                           |
 | ------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | `warnVariantCount`, `customElements`                                            | core's `GenerateOptions` (through the analyzer's `generateOptions`) |
-| `maxConcurrency`                                                                | analyzer's `CreateWorkspaceAnalyzerOptions`                         |
+| `maxConcurrency`                                                                | analyzer's `CreateWorkspaceAnalyzerOptions` / `ReconfigureOptions`  |
 | `validators[].settings`                                                         | each adapter's `AdapterSessionContext.settings`                     |
 | `enabled`, `include`/`exclude`, `validateOn*`, `debounceMs`, `externalAdapters` | the language server itself                                          |
 
