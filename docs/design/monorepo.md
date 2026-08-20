@@ -1,12 +1,12 @@
 # vue-html-bridge Monorepo Overall Design
 
 Status: Proposed  
-Revision: 2
+Revision: 3
 Last updated: 2026-08-20
 
 ## 1. Purpose
 
-We derive the multiple static HTML outputs that a Vue 3 Single-File Component (SFC) `<template>` can produce, validate them with standard HTML validators, and map the results back to positions in the original SFC. We then deliver those results to an LSP client.
+We derive the multiple static HTML outputs that a Vue 3 Single-File Component (SFC) `<template>` can produce, validate them with standard HTML validators, and map the results back to positions in the original SFC. We then deliver those results to an LSP client, and one-shot to the terminal or CI through a CLI.
 
 The first supported validator is Markuplint. However, we separate SFC interpretation, validator execution, reverse-mapping of diagnostics, and LSP communication, so we can add other validators later, such as the [Nu HTML Checker](https://github.com/validator/validator).
 
@@ -16,6 +16,7 @@ The experience the user gets in the end is as follows:
 - The tool evaluates `v-if`, `v-for`, dynamic attributes, and so on, and validates each possible resulting HTML output.
 - Errors and warnings appear at the correct line and column in the original SFC, and the user can jump to them from the Problems UI or similar.
 - Hovering over a diagnostic position shows the message, the rule, the validator, and information about the relevant variant.
+- The same analysis runs one-shot from the command line — in CI or a terminal — with the same settings the editor uses, provided as flags or the shared configuration file.
 - Adding a new validator-specific implementation does not require changes to core or the language server.
 
 ## 2. Scope
@@ -29,6 +30,8 @@ The experience the user gets in the end is as follows:
 - Validation with Markuplint
 - A validator-agnostic diagnostic format, reverse mapping, and cross-variant aggregation
 - LSP push diagnostics, hover, cancellation, and document version management
+- A CLI client (`@vue-html-bridge/cli`) that runs the same analysis one-shot, accepting the same settings as the language server through flags and the shared configuration files
+- A shared settings package (`@vue-html-bridge/settings`) so the two hosts cannot drift
 - A public interface and contract tests for future adapters
 
 ### 2.2 Not included in the initial release
@@ -39,7 +42,7 @@ The experience the user gets in the end is as follows:
 - Parsing arbitrary HTML injected via `v-html`
 - General symbolic execution of JavaScript
 - Automatic fixes or code actions for diagnostics
-- A CLI for bulk-analyzing an entire repository (this can be added later as a consumer of `analyzer`)
+- Watch mode for the CLI (the one-shot CLI ships in the initial release; `--watch` is a later ADR — cli.md §10)
 - Editor-specific extensions. The LSP client relies on each editor's existing features or a thin launch configuration.
 
 ## 3. Design principles
@@ -47,7 +50,7 @@ The experience the user gets in the end is as follows:
 1. **core does not know about HTML validators.** It is responsible only for converting an SFC into static HTML variants and a source map.
 2. **An adapter does not know about Vue SFCs.** It validates one HTML string and returns diagnostics against the generated HTML.
 3. **analyzer does not know about LSP.** It validates variants, performs reverse mapping and aggregation, and returns results as absolute offsets into the SFC.
-4. **Only the language server knows LSP types and lifecycle.** Conversion to line/column, document version, publish, and hover happens at this boundary.
+4. **Only the language server knows LSP types and lifecycle.** Document version, publish, and hover happen at this boundary. Conversion from offsets to line/column happens at a host boundary — the language server for LSP positions, the CLI for its text/JSON output.
 5. **Internal coordinates always use UTF-16 absolute offsets.** Line/column or validator-specific coordinates are converted only at each boundary.
 6. **The same input always produces the same order, IDs, and diagnostics.** We require determinism, for caching, testing, and to prevent diagnostics from flickering.
 7. **Failures are isolated.** A configuration or execution error in one adapter must not cause core diagnostics or other adapters' results to be lost.
@@ -62,6 +65,8 @@ The experience the user gets in the end is as follows:
 | `@vue-html-bridge/analyzer`           | Running core and adapters, reverse mapping, aggregation, caching       | LSP communication, validator-specific APIs             |
 | `@vue-html-bridge/adapter-markuplint` | Resolving Markuplint configuration, running it, converting coordinates | SFC mapping, LSP, cross-variant aggregation            |
 | `@vue-html-bridge/language-server`    | LSP lifecycle, settings, publishDiagnostics, hover                     | SFC conversion logic, direct use of the Markuplint API |
+| `@vue-html-bridge/settings`           | `VueHtmlBridgeSettings` schema, defaults, merge, validation, decomposition, workspace-file loading | LSP protocol, CLI flag parsing, interpreting adapter settings |
+| `@vue-html-bridge/cli`                | One-shot analysis from the command line: flags, file enumeration, text/JSON output, exit codes | LSP, variant generation, reverse mapping, direct validator APIs |
 | `@vue-html-bridge/adapter-testkit`    | Adapter contract tests, fake adapter, fixture utilities                | Production runtime                                     |
 
 The goal for a future `@vue-html-bridge/adapter-vnu` is that it implements only `validator-api`, and can be added without changing `analyzer` or `language-server`.
@@ -75,14 +80,21 @@ An arrow means "the left side depends on the right side."
   ├──> @vue-html-bridge/analyzer ──> vue-html-bridge
   │                               └─> @vue-html-bridge/validator-api
   ├──> @vue-html-bridge/adapter-markuplint ──> @vue-html-bridge/validator-api
-  └──> @vue-html-bridge/validator-api   # runtime validation of external adapters
+  ├──> @vue-html-bridge/validator-api   # runtime validation of external adapters
+  └──> @vue-html-bridge/settings
+
+@vue-html-bridge/cli
+  ├──> @vue-html-bridge/analyzer
+  ├──> @vue-html-bridge/adapter-markuplint
+  ├──> @vue-html-bridge/validator-api   # runtime validation of external adapters
+  └──> @vue-html-bridge/settings
 
 @vue-html-bridge/adapter-testkit ──> @vue-html-bridge/validator-api
 
 future: @vue-html-bridge/adapter-vnu ──> @vue-html-bridge/validator-api
 ```
 
-Circular dependencies are forbidden. In particular, core must never depend on analyzer, an adapter, or the LSP.
+Circular dependencies are forbidden. In particular, core must never depend on analyzer, an adapter, or the LSP. `@vue-html-bridge/settings` depends on nothing inside the monorepo, and nothing inside the monorepo depends on the CLI.
 
 ### 4.2 Planned repository structure
 
@@ -95,6 +107,8 @@ vue-html-bridge/
 │   ├── analyzer/
 │   ├── adapter-markuplint/
 │   ├── language-server/
+│   ├── settings/
+│   ├── cli/
 │   └── adapter-testkit/
 ├── examples/
 │   └── playground/
@@ -141,6 +155,8 @@ language-server ── offset → LSP Position ──> publishDiagnostics / hove
 5. If the provenance shows a bridge-specific artifact such as a sentinel, analyzer replaces the validator's surface-level message with a bridge-specific diagnostic.
 6. After identifying occurrences within a variant, analyzer aggregates diagnostics across variants that point to the same underlying cause in the SFC.
 7. The language server converts only the results for the latest document version into LSP ranges, and publishes them.
+
+For a one-shot run, the CLI takes the language server's place in this flow: it reads file snapshots from disk, calls the same analyzer, and renders the same `SourceDiagnostic[]` as terminal text or JSON instead of publishing over LSP (cli.md). Everything from `AnalyzeRequest` down is identical, which is why the E2E suite asserts that both hosts report the same diagnostics for the same fixture (§12.2).
 
 ## 6. Common data contracts
 
@@ -293,9 +309,9 @@ Pull diagnostics, workspace diagnostics, and code actions are out of scope for t
 
 ## 9. Settings and adapter discovery
 
-The priority order of configuration sources is as follows:
+The priority order of configuration sources is as follows. The top layer is host-specific; the layers below it are the same for both hosts:
 
-1. Editor/workspace settings obtained via LSP `workspace/configuration`
+1. Host layer: editor/workspace settings obtained via LSP `workspace/configuration` (language server), or command-line flags (CLI; cli.md §4)
 2. The workspace's `.vue-html-bridge.json`, or the `vueHtmlBridge` field in `package.json`
 3. Package defaults
 
@@ -319,15 +335,15 @@ We do not merge arrays; a higher-priority value fully replaces a lower-priority 
 }
 ```
 
-The authoritative structure is the flat `VueHtmlBridgeSettings` in language-server.md §9.2; the language server is responsible for decomposing it into each package's options.
+The authoritative structure is the flat `VueHtmlBridgeSettings` owned by `@vue-html-bridge/settings` (settings.md §3). The schema, layer merging, validation, and decomposition into each package's options are implemented once there and consumed by both the language server and the CLI.
 
-The numeric values in the JSON example above are illustrative. The authoritative defaults live in each package's own document (core.md §2.1, language-server.md §9.2); we do not define them here.
+The numeric values in the JSON example above are illustrative. The authoritative defaults live in each package's own document (core.md §2.1, settings.md §3); we do not define them here.
 
-The initial release bundles the Markuplint adapter and enables it by default. External adapters are loaded under these rules:
+The initial release bundles the Markuplint adapter and enables it by default. External adapters are loaded under these rules (they apply to both hosts; the CLI's trust default differs — cli.md §5):
 
 - The package name must be given explicitly in the settings. We do not auto-discover adapters.
-- We use the workspace's module resolution; the language server never searches arbitrary paths of its own.
-- On a client where workspace trust is not granted, we do not load external adapters.
+- We use the workspace's module resolution; the host never searches arbitrary paths of its own.
+- Where workspace trust is not granted (an LSP client without trust, or a CLI run with `--untrusted`), we do not load external adapters.
 - An `apiVersion` mismatch is surfaced explicitly, either as a workspace-level diagnostic or via `window/showMessage`.
 - We document that loading an adapter package means executing code.
 
@@ -382,6 +398,8 @@ We distinguish validator errors that return no range, configuration errors, and 
 - analyzer: reverse mapping using a fake adapter, two-stage aggregation, failure isolation, cache/cancel
 - Markuplint adapter: golden tests against the real engine, and configuration resolution
 - language server: JSON-RPC in-memory/stdio integration tests, version races, hover, multi-root
+- settings: merge/validation matrix, decomposition parity fixture, loader discovery, schema.json golden
+- cli: flag → settings parity, file enumeration, output goldens, exit codes, SIGINT, trust flags
 - adapter-testkit: self-tests, plus confirming that the Markuplint adapter passes the contract suite
 
 ### 12.2 Across the monorepo
@@ -395,13 +413,14 @@ We require a vertical-slice E2E test that runs a single `.vue` fixture all the w
 - Multiple origins from a synthesized attribute become related information. (Phase 2)
 - A stale result is not published when a `didChange` arrives mid-analysis. (Phase 2)
 - Core diagnostics are still published even when Markuplint fails. (Phase 1)
+- The CLI, run on the same fixture with equivalent settings, reports the same source diagnostics as the LSP path. (Phase 3)
 
 ## 13. Release and compatibility
 
 - Each package has its own independent semantic version.
 - Compatibility of the `validator-api` SPI is judged by both `apiVersion` and semver.
 - Changes to core's mapping/provenance types must record their impact on analyzer in the same changeset. Changes to common coordinate contracts, such as UTF-16 or half-open ranges, require a joint major compatibility review across validator-api and all adapters.
-- The language server's user settings schema avoids breaking changes, and gives a deprecation period before removing anything.
+- The user settings schema, owned by `@vue-html-bridge/settings` and consumed by both hosts, avoids breaking changes and gives a deprecation period before removing anything. The CLI flag surface follows the same policy.
 - The internal representation of generated HTML is not a public protocol. We pass only HTML and metadata to adapters, and do not expose core's internal AST.
 
 ## 14. Implementation phases
@@ -430,12 +449,15 @@ Phase 1 and Phase 2 are internal milestones, not published to npm. The "initial 
 - Two-stage aggregation, hover, related information
 - Debounce, cancellation, version gating, cache
 - Configuration changes and multi-root workspaces
+- The shared `@vue-html-bridge/settings` package (schema, merge, loading, decomposition), built together with the settings work above
+- An internal, unpublished CLI runner on top of the analyzer, used as the harness for this phase's real-project measurements
 
-### Phase 3: Finalizing the adapter SDK
+### Phase 3: Finalizing the adapter SDK and the CLI
 
 - Publishing adapter-testkit
 - External adapter loading and trust policy
 - validator-api compatibility documentation, sample adapter
+- `@vue-html-bridge/cli`: the full flag surface with settings parity, text/JSON output, exit codes, and trust flags (cli.md), grown from the Phase 2 internal runner
 
 ### Phase 4: Validating the design with a second adapter
 

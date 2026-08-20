@@ -14,6 +14,8 @@ The documents in this directory are the source of truth for the design after the
 - [`@vue-html-bridge/analyzer`](./packages/analyzer.md)
 - [`@vue-html-bridge/adapter-markuplint`](./packages/adapter-markuplint.md)
 - [`@vue-html-bridge/language-server`](./packages/language-server.md)
+- [`@vue-html-bridge/settings`](./packages/settings.md)
+- [`@vue-html-bridge/cli`](./packages/cli.md)
 - [`@vue-html-bridge/adapter-testkit`](./packages/adapter-testkit.md)
 
 ## Where this fits

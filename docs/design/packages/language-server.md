@@ -70,6 +70,7 @@ language-server
   ├── @vue-html-bridge/analyzer
   ├── @vue-html-bridge/adapter-markuplint
   ├── @vue-html-bridge/validator-api (runtime adapter validation)
+  ├── @vue-html-bridge/settings (schema, merge, decomposition, workspace-file loading)
   └── vscode-languageserver / vscode-languageserver-textdocument
 ```
 
@@ -288,44 +289,19 @@ At a position with no diagnostic, the server returns `null`. It does not return 
 
 ### 9.2 Settings
 
-```ts
-export interface VueHtmlBridgeSettings {
-  enabled: boolean;
-  include: readonly string[]; // default: ["**/*.vue"]
-  exclude: readonly string[];
-  validateOnChange: boolean; // default: true
-  validateOnSave: boolean; // default: true
-  debounceMs: number; // default: 200
-  maxConcurrency: number; // if not set, uses the analyzer default (based on CPU count; monorepo.md §10.3)
-  warnVariantCount: number; // if not set, uses the core default of 256 (core.md §2.1)
-  customElements: readonly string[]; // default: []. Passed to core's GenerateOptions.customElements
-  externalAdapters: "disabled" | "trusted-workspace-only";
-  validators: readonly ValidatorSetting[];
-}
+The settings schema is the shared flat `VueHtmlBridgeSettings`, owned by `@vue-html-bridge/settings` (settings.md §3) together with its defaults, layer merging, validation, and decomposition into per-package options. The language server does not redefine any of that; this section covers only what is LSP-specific.
 
-export interface ValidatorSetting {
-  adapter: string;
-  enabled: boolean;
-  settings?: unknown;
-}
-```
-
-Settings precedence:
+Settings precedence (the host layer of settings.md §4):
 
 1. `vueHtmlBridge` from LSP `workspace/configuration`
-2. `.vue-html-bridge.json` or `package.json#vueHtmlBridge`
+2. `.vue-html-bridge.json` or `package.json#vueHtmlBridge`, loaded through the shared loader (settings.md §5)
 3. Defaults
 
-Objects are merged field by field; arrays are fully replaced by the higher-precedence value. An unknown field produces a warning; an invalid type is a configuration error and falls back to a known safe default. `$schema` and `version` are reserved at the top level, so a schema version can be included later.
+Merge and validation semantics are those of `mergeSettings` / `validateSettings` (settings.md §4): objects merge field by field, arrays are fully replaced by the higher-precedence value, an unknown field produces a warning, and an invalid type is a configuration error that falls back to a known safe default. The server reports the returned issues once per workspace via `window/logMessage` / `window/showMessage`.
 
-This flat `VueHtmlBridgeSettings` shape is the single source of truth for the external config schema. The language server is responsible for splitting it into the values each internal layer needs.
+The server routes values with `decomposeSettings` (settings.md §6): `warnVariantCount` / `customElements` to core's `GenerateOptions` through the analyzer; `maxConcurrency` to the analyzer's `CreateWorkspaceAnalyzerOptions` / `ReconfigureOptions`; `validators[].settings` to each adapter's `AdapterSessionContext.settings`; and the host fields (`enabled`, `include`/`exclude`, `validateOn*`, `debounceMs`, `externalAdapters`) to its own scheduling and trust logic. The CLI consumes the same schema with flags as its host layer (cli.md §4), so a new settings field must be routed in settings.md's decomposition table — pinned by a parity fixture both hosts' test suites reuse — rather than in either host.
 
-| Settings field                                                                  | Passed to                                                           |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `warnVariantCount`, `customElements`                                            | core's `GenerateOptions` (through the analyzer's `generateOptions`) |
-| `maxConcurrency`                                                                | analyzer's `CreateWorkspaceAnalyzerOptions` / `ReconfigureOptions`  |
-| `validators[].settings`                                                         | each adapter's `AdapterSessionContext.settings`                     |
-| `enabled`, `include`/`exclude`, `validateOn*`, `debounceMs`, `externalAdapters` | the language server itself                                          |
+`schema.json` continues to ship in this package for existing `$schema` references; it is generated at build time from `@vue-html-bridge/settings` (settings.md §7), never edited by hand.
 
 ### 9.3 Settings changes
 
@@ -455,8 +431,7 @@ src/
 ├── hover.ts
 ├── positions.ts
 ├── config/
-│   ├── loader.ts
-│   ├── schema.ts
+│   ├── sources.ts    # layers workspace/configuration onto @vue-html-bridge/settings
 │   └── watcher.ts
 ├── workspace/
 │   ├── manager.ts
