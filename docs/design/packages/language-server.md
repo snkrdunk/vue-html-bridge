@@ -329,7 +329,9 @@ This flat `VueHtmlBridgeSettings` shape is the single source of truth for the ex
 
 ### 9.3 Settings changes
 
-- If the client supports dynamic registration, the server registers, in `workspace/didChangeWatchedFiles`, both the config file / explicit validator config and the `configFilePatterns` capability (validator-api §3) of each enabled adapter. On a watch event, it calls `analyzer.reconfigure({ invalidateAdapters: [<matching adapter id>] })`. The settings object itself does not change in this case, so without this forced flag the session would not be recreated (analyzer.md §11). This is the only route through which an adapter session gets recreated (and its session-scoped validation cache dropped) as a result of a config change.
+- If the client supports dynamic registration, the server registers the bridge settings files and each enabled adapter's `configFilePatterns` (validator-api §3). These globs detect config candidates, including a nearer config created after the session was initialized.
+- After analyzer creation/reconfiguration and after each analysis, the server reads `analyzer.getConfigWatchTargets()`. It diffs the deterministic snapshot against the current registrations and watches the concrete absolute paths reported by sessions, including explicit configs and resolved `extends`/plugin dependencies. The language server never inspects `validators[].settings` for a validator-specific field such as `configFile`; adapters expose those paths through the SPI instead.
+- On a candidate-pattern or concrete-target event, the server calls `analyzer.reconfigure({ invalidateAdapters: [<matching adapter id>] })`. The settings object itself does not change in this case, so without this forced flag the session would not be recreated and its session-scoped validation cache would remain stale. After replacement, the concrete-target registrations are refreshed from the new session snapshot.
 - On `workspace/didChangeConfiguration`, the server re-fetches settings.
 - It aborts any analysis in progress for the changed workspace, calls `reconfigure` on the analyzer, and re-analyzes open documents.
 - If a config file has a parse error mid-save, one option under consideration is to keep the previous session, report the error, and retry on the next change, instead of silently switching to a different config.
@@ -388,6 +390,7 @@ On `exit`, the server returns code 0 if shutdown already happened, and otherwise
 4. Config merge, array replacement, invalid/unknown settings.
 5. Workspace folder routing and the single-file restricted session.
 6. External adapter package specifier / runtime shape / trust validation.
+7. Candidate-pattern and concrete-target watcher snapshots are registered, refreshed, and mapped back to the adapter whose session must be recreated, without inspecting adapter-specific settings.
 
 ### 13.2 Protocol integration
 
@@ -403,6 +406,7 @@ Using an in-memory JSON-RPC connection, test:
 8. Session recreation and open document re-analysis on a workspace config change.
 9. Different config/adapters in a multi-root workspace do not mix.
 10. Analyzer/sessions are disposed on shutdown.
+11. A concrete config target discovered by an adapter after analysis is dynamically registered; changing it recreates only that adapter's session and refreshes the target snapshot.
 
 ### 13.3 End-to-end
 

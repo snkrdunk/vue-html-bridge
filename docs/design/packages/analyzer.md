@@ -47,6 +47,7 @@ export interface ConfiguredAdapter<TSettings = unknown> {
 export interface WorkspaceAnalyzer {
   analyze(request: AnalyzeRequest): Promise<AnalysisResult>;
   reconfigure(options: ReconfigureOptions): Promise<void>;
+  getConfigWatchTargets(): readonly AnalyzerConfigWatchTarget[];
   dispose(): Promise<void>;
 }
 
@@ -62,12 +63,18 @@ export interface ReconfigureOptions {
   invalidateAdapters?: readonly string[];
 }
 
+export interface AnalyzerConfigWatchTarget extends ConfigWatchTarget {
+  adapterId: string;
+}
+
 export async function createWorkspaceAnalyzer(
   options: CreateWorkspaceAnalyzerOptions,
 ): Promise<WorkspaceAnalyzer>;
 ```
 
 Resolving the adapter package and deciding whether to trust it is the caller's responsibility. The analyzer only accepts adapter instances that are already loaded and have passed runtime validation.
+
+`getConfigWatchTargets()` returns a deterministic, deduplicated snapshot from all live adapter sessions, tagged with `adapterId`. The language server queries it after session creation/reconfiguration and after analysis, because `validate()` may discover a nearer config or another resolved dependency. The analyzer validates adapter-returned target shapes at this boundary and ignores an invalid snapshot after reporting an adapter programming failure.
 
 ### 2.1 Analyze request/result
 
@@ -444,10 +451,10 @@ adapter id/version
 + HTML content hash
 ```
 
-The cache belongs to a session (session-scoped). Config discovery and overrides are resolved internally by the adapter, starting from `sourceFilename`, and there is no way in v1 for the SPI to obtain that identity. Because of this, invalidation happens in two layers:
+The cache belongs to a session (session-scoped). Config discovery and overrides are resolved internally by the adapter, starting from `sourceFilename`. Invalidation happens through both candidate patterns and concrete targets:
 
 1. **Reuse within a file, across analyze calls:** the key includes `sourceFilename`, so identical HTML from different source files never shares a result (this is deliberately over-invalidating). This does not affect sharing across variants within one `analyze` call (§5.1).
-2. **Invalidation on config change:** the language server watches the adapter capability's `configFilePatterns` (validator-api §3), and on a change, forces recreation of that adapter's session with `reconfigure({ invalidateAdapters: [...] })` (§11). Since the cache is discarded together with the session, the "config epoch" is simply the session's generation. `configFilePatterns` is only a glob for known configuration file candidates — it cannot capture arbitrary-named local `extends` targets, plugin implementations, or dependencies inside `node_modules`. The fact that changes to these are not reflected until the next session recreation is documented as a known limitation.
+2. **Invalidation on config change:** the language server watches the adapter capability's `configFilePatterns` for config candidates and the concrete paths exposed through `WorkspaceAnalyzer.getConfigWatchTargets()` (validator-api §3.1). A matching change forces recreation of that adapter's session with `reconfigure({ invalidateAdapters: [...] })` (§11). Since the cache is discarded together with the session, the "config epoch" is simply the session's generation. A dependency that the validator cannot resolve to a local path remains a documented limitation, but an arbitrary filename by itself is no longer a reason for missing invalidation.
 
 ### 10.3 Cache policy
 
@@ -495,6 +502,7 @@ Using the `adapter-testkit` fake adapter and deterministic core fixtures, the fo
 15. Source/generated ranges containing emoji are kept correct in UTF-16.
 16. Determinism of the virtual filename: the same `sourceFilename` and the same HTML always produce the same path, independent of variant ID or enumeration order. Different HTML produces a different path. The hash part uses only characters that are safe as a path segment.
 17. `reconfigure({ invalidateAdapters })` recreates the target session even when the settings hash is unchanged, and the validation cache belonging to that session is discarded.
+18. Concrete config watch targets from multiple sessions are shape-validated, tagged with the correct adapter ID, sorted/deduplicated deterministically, refreshed after validation, and removed when a session is replaced or disposed.
 
 ## 13. Open questions
 
@@ -502,7 +510,6 @@ Each item notes where the decision will be made.
 
 - Whether to include a transformation group ID as a public field on core's `MappingEntry` from v1 (ADR when aggregation is implemented in Phase 2)
 - Whether to add an SPI extension that lets a session expose a config fingerprint (e.g. `getConfigFingerprint(sourceFilename)`), to allow sharing the validation cache across files (ADR after measurement in Phase 2)
-- Whether to add an SPI extension that lets a session return resolved config dependency paths (e.g. `getConfigDependencies()`), to let arbitrary-named `extends` targets and plugins also be watched (ADR after measurement in Phase 2)
 - Whether runtime schema validation of adapter settings is done by the language server or by the analyzer (decided during Phase 1 implementation)
 - Whether to split out a config loader for standalone analyzer users into a separate package (ADR when adding a CLI is being considered)
 - For a validator like Nu HTML Checker that requires a full document, the wrapper is added inside the adapter, and it must handle both excluding wrapper-only diagnostics and correcting ranges by itself. Whether this contract is sufficient will be verified by prototyping a second adapter. (Phase 4)

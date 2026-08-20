@@ -1,8 +1,8 @@
 # vue-html-bridge Monorepo Overall Design
 
 Status: Proposed  
-Revision: 1  
-Last updated: 2026-08-18
+Revision: 2
+Last updated: 2026-08-20
 
 ## 1. Purpose
 
@@ -256,6 +256,7 @@ interface ValidatorSession {
     request: ValidateHtmlRequest,
     signal: AbortSignal,
   ): Promise<ValidateHtmlResult>;
+  getConfigWatchTargets?(): readonly ConfigWatchTarget[];
   dispose(): Promise<void>;
 }
 ```
@@ -267,6 +268,7 @@ An adapter must guarantee the following:
 - It validates a single `ValidateHtmlRequest` as a static HTML fragment, not as Vue. If the validator requires a full document, the adapter must handle adding a wrapper, excluding wrapper-only diagnostics, and correcting ranges, entirely within the adapter.
 - It normalizes the validator's diagnostics to generated UTF-16 ranges and a common severity.
 - It uses `sourceFilename` for configuration lookup, and `virtualFilename` for the HTML parser or any virtual input name, keeping the two separate.
+- If it resolves local config or dependency files, its session exposes their concrete absolute paths through `getConfigWatchTargets`; candidate config filenames remain in `capabilities.configFilePatterns` so the host can also detect newly created configs.
 - It respects `AbortSignal`. Any validator startup or configuration failure other than cancellation must be returned as a structured failure.
 - It does not depend on the SFC source map, variant aggregation, or LSP types.
 - It does not modify the source or the generated HTML.

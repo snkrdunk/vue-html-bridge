@@ -75,11 +75,9 @@ export interface AdapterCapabilities {
   maxConcurrentValidations: number;
   /**
    * For adapters with supportsConfigFiles: true, the globs for known
-   * configuration file candidates to watch. The host treats a change to
-   * any of these as a trigger to recreate the session. Arbitrary-named
-   * dependencies, such as resolved extends targets or plugin
-   * implementations, cannot be expressed here, and changes to them are
-   * not reflected until the next session recreation.
+   * configuration file candidates to watch. These patterns detect files
+   * that do not exist yet and newly-created nearer configs. Concrete files
+   * already resolved by a session are reported by getConfigWatchTargets().
    */
   configFilePatterns?: readonly string[];
 }
@@ -96,17 +94,33 @@ export interface AdapterSessionContext<TSettings = unknown> {
   logger: AdapterLogger;
 }
 
+export interface ConfigWatchTarget {
+  /** Normalized absolute path of a local file. Globs and URIs are not accepted. */
+  absolutePath: string;
+  /** Why the validator depends on this file. */
+  kind: "config" | "dependency";
+}
+
 export interface ValidatorSession {
   validate(
     request: ValidateHtmlRequest,
     signal: AbortSignal,
   ): Promise<ValidateHtmlResult>;
 
+  /**
+   * Returns the current snapshot of concrete local files whose changes
+   * require this session to be recreated. The snapshot may grow after
+   * validate() discovers another source-local config or dependency.
+   */
+  getConfigWatchTargets?(): readonly ConfigWatchTarget[];
+
   dispose(): Promise<void>;
 }
 ```
 
 Create one session per combination of workspace and adapter settings. This lets expensive resources — configuration, engine, subprocess, connection, and so on — be reused. `dispose` must be safe to call more than once, and `validate` after disposal must either return an explicit failure or reject.
+
+`configFilePatterns` and `getConfigWatchTargets` have complementary roles. Candidate patterns let the host observe creation of a config that was not previously resolved. Concrete targets cover an explicit config, the config selected for a validated source file, arbitrarily named `extends` targets, and plugin files when the adapter can resolve them. A returned snapshot is sorted and deduplicated by `absolutePath`, is deterministic for the same session state, and contains no source or generated HTML. If the same path is both a config and a dependency, the single retained entry uses `kind: "config"`. An adapter that uses local configuration files must implement this method; an adapter whose configuration is entirely remote or in-memory may omit it.
 
 **createSession failure contract:** Environmental failures, such as failing to load configuration or failing to start the validator, must reject with an error that has this runtime shape.
 
@@ -321,6 +335,7 @@ Every adapter must pass the contract suite in `@vue-html-bridge/adapter-testkit`
 - Does not change the `html` field or the `request` object.
 - The result order for the same input is deterministic.
 - `result`/`data` are JSON-serializable.
+- If the adapter uses local configuration files, `getConfigWatchTargets()` returns sorted, deduplicated absolute paths and includes concrete config/dependency files discovered during validation.
 
 ## 10. Proposed internal module layout
 
@@ -333,4 +348,4 @@ src/
 └── runtime-check.ts  # minimal runtime validation of an external adapter export
 ```
 
-runtime-check does not resolve package names or perform dynamic imports. It only checks whether the unknown export it is given has the v1 adapter shape.
+runtime-check does not resolve package names or perform dynamic imports. It only checks whether the unknown export it is given has the v1 adapter shape. If `getConfigWatchTargets` is present on a session, the host also validates the returned snapshot before registering filesystem watchers.

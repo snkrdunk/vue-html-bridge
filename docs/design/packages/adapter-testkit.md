@@ -45,6 +45,8 @@ export interface AdapterContractFixture<TSettings> {
   };
 
   createFailureSettings?: () => TSettings;
+  /** Expected snapshot after the invalidHtml request has been validated. */
+  expectedConfigWatchTargets?: readonly ConfigWatchTarget[];
 }
 
 export function createAdapterContractCases<TSettings>(
@@ -176,6 +178,10 @@ expect(JSON.parse(JSON.stringify(result))).toEqual(result);
 
 When comparing, we normalize the object first so that dropped `undefined` optional fields do not cause a mismatch. `data` / `metadata` must never contain an `Error` object, a `BigInt`, a circular reference, or a class instance.
 
+### 3.10 Concrete config watch targets
+
+For an adapter that uses local configuration files, the fixture supplies an expected config/dependency path. The contract verifies that `getConfigWatchTargets()` returns normalized absolute paths, is sorted and deduplicated, is deterministic when called repeatedly, and includes newly discovered targets after `validate()`. An adapter that reports a relative path, glob, URI, duplicate entry, or non-deterministic ordering fails the contract. Adapters whose configuration is entirely remote or in-memory may omit the method.
+
 ## 4. Fake adapter
 
 For analyzer tests, we provide a fake adapter that returns an arbitrary result based on input HTML and a barrier.
@@ -186,6 +192,7 @@ export interface FakeAdapterController {
   calls: readonly FakeValidateCall[];
   enqueue(result: ValidateHtmlResult | Error): void;
   blockNext(): Deferred<void>;
+  setConfigWatchTargets(targets: readonly ConfigWatchTarget[]): void;
 }
 
 export function createFakeAdapter(
@@ -256,6 +263,7 @@ defineVitestAdapterContract("no-blink", {
 - A wrapped adapter that does not correct the wrapper range
 - An adapter that mutates the request
 - An adapter with invalid capabilities (for example, a missing `maxConcurrentValidations`)
+- A config-file adapter that returns a relative, duplicate, or unstable concrete watch target
 
 We keep these mutation-style negative fixtures so the contract tests themselves do not become a formality.
 
@@ -280,6 +288,7 @@ Before publishing, the testkit verifies the following about itself.
 8. Range correction in wrapped mode, exclusion of wrapper-originated diagnostics, and request immutability.
 9. Fake adapter call capture, queue, barrier, and throw behavior.
 10. Broken adapters are detected by the matching contract.
+11. Concrete config watch targets are absolute, sorted, deduplicated, deterministic, and refreshed after validation.
 
 ## 9. Proposed internal module layout
 

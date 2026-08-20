@@ -165,7 +165,9 @@ The format of the synthetic path is defined as a public contract in `@vue-html-b
 
 ### 4.3 Config cache
 
-The session caches the config path and the identity of dependent configs/plugins. Config changes are not detected by an adapter-specific watcher; instead, we unify detection so the language server watches the `configFilePatterns` capability. On change, the language server calls `reconfigure({ invalidateAdapters: ["markuplint"] })`, which recreates the whole session — and any validation cache tied to that session is also dropped (analyzer.md §10.2 and §11). Because `configFilePatterns` only covers known config-file candidates, changes to arbitrarily-named local `extends` targets or plugin implementations are not detected, and do not take effect until the next session recreation.
+The session caches resolved config contexts per source directory / resolved-config identity. It also maintains the concrete local files on which those contexts depend: an explicit config, each discovered nearest config, resolved `extends` targets, and plugin entry files when Markuplint exposes their resolved paths. `getConfigWatchTargets()` returns that sorted, deduplicated snapshot through validator-api §3.1; it may grow after validating an SFC in another directory.
+
+The language server watches both `configFilePatterns` and these concrete targets. Candidate patterns detect a newly created nearer config, while concrete targets cover arbitrarily named dependencies that a glob cannot predict. A matching change causes `reconfigure({ invalidateAdapters: ["markuplint"] })`, recreating the whole session and dropping its validation cache (analyzer.md §10.2 and §11). Dependencies that Markuplint cannot resolve to a local path remain a documented limitation.
 
 ## 5. Generated HTML profile
 
@@ -281,6 +283,7 @@ We run the full contract test suite from `@vue-html-bridge/adapter-testkit` agai
 12. Session dispose and reconfigure.
 13. Detecting API shape across the Markuplint major/version matrix.
 14. `configFilePatterns` matches the config-search filename fixture recorded for the pinned Markuplint version (§3.1 item 7); the test fails on drift when the version is updated.
+15. `getConfigWatchTargets()` includes explicit/discovered configs and resolvable `extends`/plugin dependencies, uses normalized absolute paths, and expands deterministically as files in different source directories are validated.
 
 ### 9.3 Golden tests
 
@@ -293,7 +296,6 @@ Each item notes where the decision will be made.
 - The best public API for passing a source string plus virtual filename to `MLEngine` (Phase 0 spike, §3.1)
 - Whether a generated file excluded by config's `excludeFiles` should be a silent ignore or an info diagnostic (decided during Phase 1 implementation)
 - Capability update once Markuplint offers native cancellation (once upstream supports it)
-- Config dependency watcher: the initial version already unifies on the language server watching `configFilePatterns`. Whether an adapter-specific watcher is needed will be reconsidered if dependencies outside the watch target (e.g., `extends` inside `node_modules`) cause real problems (an ADR after measurement)
 
 ## 11. References
 
