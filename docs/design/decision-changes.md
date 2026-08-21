@@ -9,7 +9,7 @@ This document records which decisions from `Design Document_ vue-html-bridge.md`
 
 The baseline is **Rev. 8** of the root document (the latest version as of 2026-08-18). This list originally used Rev. 5 as the baseline, but the root document itself was revised through Rev. 6-8 and now includes the Decision Model, `v-for` 0/1/2, and other changes — the Rev. 5 text no longer exists. Decision changes made inside the root document between Rev. 5 and Rev. 8 are part of that document's own revision history, and are out of scope for this list.
 
-Once the repository is under git management, the baseline should be pinned to a commit hash. Any difference from Rev. 8 not listed here is a carry-over gap: once found, it should either be restored into the core design or added to this list.
+The repository is now under git management; the Rev. 8 comparison base is pinned to commit `6bdf787681db96728f02d3b3cb9fc7e12de0b9ec` (the initial commit, which added `docs/design/` as the first checked-in state derived from Rev. 8). Any difference from that commit's `docs/design/` and Rev. 8 not listed here is a carry-over gap: once found, it should either be restored into the core design or added to this list.
 
 ## Changed decisions (Rev. 8 → docs/design)
 
