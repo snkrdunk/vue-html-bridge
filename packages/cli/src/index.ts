@@ -1,7 +1,8 @@
-import { PACKAGE_NAME as ANALYZER_PACKAGE_NAME } from "@vue-html-bridge/analyzer";
-// adapter-markuplint is no longer a Stage-A stub (Phase 1 Step 4) and has no
-// PACKAGE_NAME export; this cross-import smoke test uses its real adapter id
-// instead. analyzer/validator-api/settings are still Stage-A stubs.
+// analyzer and adapter-markuplint are no longer Stage-A stubs (Phase 1 Steps
+// 4-5) and have no PACKAGE_NAME export; this cross-import smoke test proves
+// the real imports resolve instead. validator-api/settings are still Stage-A
+// stubs.
+import { createWorkspaceAnalyzer } from "@vue-html-bridge/analyzer";
 import { markuplintAdapter } from "@vue-html-bridge/adapter-markuplint";
 import { PACKAGE_NAME as VALIDATOR_API_PACKAGE_NAME } from "@vue-html-bridge/validator-api";
 import { PACKAGE_NAME as SETTINGS_PACKAGE_NAME } from "@vue-html-bridge/settings";
@@ -9,7 +10,9 @@ import { PACKAGE_NAME as SETTINGS_PACKAGE_NAME } from "@vue-html-bridge/settings
 export const PACKAGE_NAME = "@vue-html-bridge/cli";
 
 export const dependsOn = [
-  ANALYZER_PACKAGE_NAME,
+  typeof createWorkspaceAnalyzer === "function"
+    ? "@vue-html-bridge/analyzer"
+    : "missing",
   markuplintAdapter.id,
   VALIDATOR_API_PACKAGE_NAME,
   SETTINGS_PACKAGE_NAME,

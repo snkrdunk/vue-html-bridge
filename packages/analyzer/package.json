@@ -25,6 +25,8 @@
     "@vue-html-bridge/validator-api": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "26.2.0"
+    "@types/node": "26.2.0",
+    "@vue-html-bridge/adapter-testkit": "workspace:*",
+    "vitest": "4.1.11"
   }
 }
