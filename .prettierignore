@@ -1,0 +1,14 @@
+pnpm-lock.yaml
+dist/
+coverage/
+node_modules/
+.claude/
+
+# Prose docs keep their authors' own formatting (tables, ASCII diagrams);
+# Prettier here targets code/config, not Markdown.
+*.md
+**/*.md
+
+# Normative fixture content (e.g. language-server.md §13.3) must stay
+# byte-identical to the design doc, not reflowed by a formatter.
+examples/playground/*.vue
