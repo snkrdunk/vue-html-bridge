@@ -3,6 +3,12 @@
 Status: Accepted
 Date: 2026-08-21
 
+> **Note (2026-08-21):** the "What core builds on top, and what it reuses"
+> section below (the `resolveTypeElements` reuse plan) was superseded by
+> **ADR-0006** during Phase 1 implementation. Everything else in this ADR —
+> the `TypeAnalysisContext` shape, lifecycle, unsaved-buffer handling, and
+> project-epoch definition — is unchanged and still in effect.
+
 ## Context
 
 core.md §2 defines core's public API as accepting an optional `typeContext?: TypeAnalysisContext`, but explicitly deferred what that type is and who constructs it: "Whether core owns the concrete lifecycle of the TypeScript program/project service, or the caller injects it, will be decided during the Phase 0 spike." implementation-plan.md §3.1 (Spike S1) required prototyping both ownership models with running code against the `examples/playground/*.vue` fixtures before deciding, and required the decision to be reflected into core.md/analyzer.md/language-server.md as concrete API shapes — not just a yes/no answer — including: where the project service is created/shared/disposed, how unsaved SFC script content enters the type environment, and how the "TypeScript project epoch" (analyzer.md §10.1) is generated and bumped.
