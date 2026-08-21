@@ -14,9 +14,11 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check:deps": "node ./scripts/check-dependency-graph.mjs"
+    "check:deps": "node ./scripts/check-dependency-graph.mjs",
+    "changeset": "changeset"
   },
   "devDependencies": {
+    "@changesets/cli": "3.0.1",
     "@eslint/js": "10.0.1",
     "@types/node": "26.2.0",
     "eslint": "10.8.1",

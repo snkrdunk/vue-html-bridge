@@ -121,7 +121,7 @@ vue-html-bridge/
 └── tsconfig.base.json
 ```
 
-We plan to use a pnpm workspace for package management. Changesets is a candidate for tracking changelogs and independent versioning of published packages, but we will decide the build tooling in an ADR when implementation starts.
+We use a pnpm workspace for package management, plain `tsc` per package (no bundler), and Changesets for changelogs and independent per-package versioning. See ADR-0001 for the full decision and rationale.
 
 ## 5. End-to-end data flow
 
