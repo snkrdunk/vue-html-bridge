@@ -15,7 +15,7 @@ The CLI accepts the same settings as the language server: every field of the sha
 - Building settings layers from CLI flags and the shared configuration files, resolved by `resolveSettings`
 - Loading adapters through `@vue-html-bridge/adapter-loader`, creating one `WorkspaceAnalyzer`, and running `analyze` per file
 - Converting source diagnostics (UTF-16 offsets) to line/column at this boundary
-- Human-readable text output and versioned machine-readable JSON output
+- Human-readable text output and versioned machine-readable NDJSON output
 - A run outcome model: exit codes, a severity threshold, run-level errors, and signal handling
 - The same trust rules as the language server, with a CLI-appropriate default
 
@@ -24,7 +24,7 @@ The CLI accepts the same settings as the language server: every field of the sha
 - LSP protocol, editor lifecycle, hover
 - Variant generation, reverse mapping, aggregation (analyzer's job)
 - Calling core or the Markuplint API directly
-- Watch mode (initial release; see §10)
+- Watch mode and stdin input (scoped out through Phase 3, per product decision 2026-08-21; see §10)
 - Automatic fixes
 
 Like the language server, the CLI never calls `vue-html-bridge` core directly; it always goes through the analyzer. Whatever the analyzer produces for a given source snapshot and settings is what both clients report — the E2E suite asserts that the CLI and the LSP path emit the same source diagnostics for the same fixture under an explicitly equalized trust policy and resolved settings (§9).
@@ -49,7 +49,7 @@ vue-html-bridge [options] [file|dir|glob ...]
 
 - Positional arguments are files, directories, or globs, resolved relative to the working directory. A directory argument expands to `<dir>/**/*.vue`. When positional arguments are present, they replace the `include` setting.
 - With no positional arguments, `include` (default `["**/*.vue"]`) is used, relative to the workspace root.
-- stdout carries analysis results only. Logs, progress, and notices go to stderr. This mirrors the language server's rule that stdout is reserved for the protocol, and keeps `--format json` pipeable.
+- stdout carries analysis results only. Logs, progress, and notices go to stderr. This mirrors the language server's rule that stdout is reserved for the protocol, and keeps `--format ndjson` pipeable.
 - `--help` and `--version` print to stdout and exit 0. An unknown option or a malformed value prints usage to stderr and exits 2.
 
 ## 3. Dependencies
@@ -101,7 +101,7 @@ Additional CLI-only options (not part of the settings schema):
 | --- | --- |
 | `--config <path>` | Explicit settings file; replaces discovery (§4.1) |
 | `--workspace-root <dir>` | Workspace root for config discovery, adapter sessions, the file-enumeration boundary, and relative output paths. Default: the current working directory. One root per invocation; multi-root is an LSP concept |
-| `--format <text|json>` | Output format (§7). Default `text` |
+| `--format <text|ndjson>` | Output format (§7). Default `text` |
 | `--fail-on <error|warning|info|hint|never>` | Lowest severity that causes exit code 1. Default `error` |
 | `--untrusted` | Run with the restricted trust behavior (§5) |
 | `--help`, `--version` | Print and exit 0 |
@@ -143,12 +143,12 @@ Trust never enables adapter auto-discovery. External adapters must be explicitly
    - Sources: positional arguments (files, directories expanded to `<dir>/**/*.vue`, globs) or `include`, minus `exclude`. Globs follow standard semantics: `*` does not match dotfiles; `node_modules` is skipped via the default `exclude`.
    - **Workspace boundary:** every resolved file must lie inside the workspace root. A positional argument that resolves outside it (`../other/File.vue`) is a run-level error (§8) in the initial version — config discovery, adapter sessions, and relative output paths are all defined against one root. Widening this is a later decision.
    - **Identity and deduplication:** each path is normalized to its absolute real path (symlinks resolved; case normalized on case-insensitive filesystems). Two arguments reaching the same real path analyze it once.
-   - The final list is sorted by path so output order and JSON goldens are deterministic.
+   - The final list is sorted by path so output order and NDJSON goldens are deterministic.
 3. Read each file from disk and call `analyze` with the content as the source snapshot. `AnalyzeRequest.uri` is built from the resolved absolute real path with Node's `pathToFileURL` (its Windows drive-letter and percent-encoding rules are the contract), so the same file always yields the same URI. There are no unsaved buffers and no document versions in a one-shot run; `documentVersion` is left unset. A file read error is a run-level error; remaining files are still analyzed.
 4. Files are analyzed sequentially in the initial version. `maxConcurrency` still governs adapter-level parallelism inside each `analyze` call, which is where the time goes. File-level parallelism is an open question (§10).
-5. Rendering depends on the output mode: `--format text` renders each file's results as they complete (streaming); `--format json` buffers all results and emits a single document at the end (§7.2). Then the analyzer is disposed and the process exits per §8.
+5. Rendering depends on the output mode: both `--format text` and `--format ndjson` render each file's results as they complete (streaming) — NDJSON's line-delimited shape is exactly what makes this safe: unlike a single buffered document, a consumer can process each line as it arrives (§7.2). Then the analyzer is disposed and the process exits per §8.
 
-**Signals.** SIGINT and SIGTERM abort the in-flight `analyze` through its `AbortSignal`, skip remaining files, dispose sessions best-effort, and exit with the conventional code — 130 for SIGINT, 143 for SIGTERM. Cleanup is bounded and never blocks exit indefinitely (the same rule as language-server.md §12); a second signal during cleanup exits immediately. Aborted results are discarded, never rendered — cancellation is not a diagnostic (monorepo.md §11) — and in JSON mode an interrupted run emits no document at all (§7.2).
+**Signals.** SIGINT and SIGTERM abort the in-flight `analyze` through its `AbortSignal`, skip remaining files, dispose sessions best-effort, and exit with the conventional code — 130 for SIGINT, 143 for SIGTERM. Cleanup is bounded and never blocks exit indefinitely (the same rule as language-server.md §12); a second signal during cleanup exits immediately. Aborted results are discarded, never rendered — cancellation is not a diagnostic (monorepo.md §11) — and in NDJSON mode an interrupted run's stream simply stops after the last completed line, with no `summary` line (§7.2).
 
 ## 7. Output
 
@@ -172,27 +172,32 @@ src/components/Menu.vue:5:11 warning invalid-attr
 
 Run-level errors (§8) are printed to stderr as they occur. A final summary line on stdout reports file and per-severity counts.
 
-### 7.2 `--format json`
+### 7.2 `--format ndjson`
 
-A single JSON document on stdout, normatively defined by this versioned type (also published as a JSON Schema next to the settings schema):
+**NDJSON** (newline-delimited JSON): one self-contained JSON value per line (`\n`-terminated, UTF-8, no pretty-printing), tagged by a `type` discriminant. This is the CLI's only machine-readable output — chosen over a single buffered document (the design's earlier `--format json` shape) so results can stream to stdout the same way `--format text` already does (§6 step 5), which matters for workspace-scale runs (hundreds of files) and for large runs piped straight into another process. Record shapes are normatively defined by these versioned types (also published as a JSON Schema next to the settings schema):
 
 ```ts
-export interface CliJsonOutputV1 {
+export type CliNdjsonRecord =
+  | CliNdjsonMeta
+  | CliNdjsonFile
+  | CliNdjsonRunError
+  | CliNdjsonSummary;
+
+/** Always the first line of any run that reaches analysis. */
+export interface CliNdjsonMeta {
+  type: "meta";
   version: 1;
-  /** Sorted by path. */
-  files: readonly CliJsonFileResult[];
-  /** Run-level errors (§8), each reported once. */
-  runErrors: readonly CliJsonRunError[];
-  summary: CliJsonSummary;
 }
 
-export interface CliJsonFileResult {
+/** One per file, emitted as that file's analysis completes. */
+export interface CliNdjsonFile {
+  type: "file";
   /** Workspace-relative, "/"-separated. */
   path: string;
-  diagnostics: readonly CliJsonDiagnostic[];
+  diagnostics: readonly CliNdjsonDiagnostic[];
 }
 
-export interface CliJsonDiagnostic {
+export interface CliNdjsonDiagnostic {
   severity: "error" | "warning" | "info" | "hint";
   code: string;
   message: string;
@@ -213,7 +218,9 @@ export interface CliJsonDiagnostic {
   evidence: { variantCount: number; truncated: boolean };
 }
 
-export interface CliJsonRunError {
+/** One per run-level error (§8), emitted as it occurs. */
+export interface CliNdjsonRunError {
+  type: "runError";
   /** e.g. "adapter/markuplint/configuration-error", "file-unreadable", "adapter-load/invalid-shape" */
   code: string;
   message: string;
@@ -222,7 +229,9 @@ export interface CliJsonRunError {
   path?: string;
 }
 
-export interface CliJsonSummary {
+/** Emitted once, last, only if the run reaches completion (§7.2 stdout validity). */
+export interface CliNdjsonSummary {
+  type: "summary";
   filesAnalyzed: number;
   errors: number;
   warnings: number;
@@ -235,36 +244,17 @@ export interface CliJsonSummary {
 Contract:
 
 - **Projection from `SourceDiagnostic`** (analyzer.md §3): `severity`, `code`, `message`, `origin`, `adapterId`, `codeDescriptionHref`, the primary range, and `relatedInformation` are carried over; `evidence` is projected to `variantCount` + `truncated` only. Everything else (`id`, variant IDs, example decisions, `generatedExample`) is internal and excluded. The output never contains generated HTML or source text.
-- **Summary counts every severity**, so any `--fail-on` threshold can be recomputed from the document.
-- **Compatibility:** adding an optional field is a minor change and does not bump `version`; consumers must ignore unknown fields. Changing or removing a field, or changing semantics, bumps `version`.
-- **stdout validity:** with `--format json`, stdout carries either exactly one valid `CliJsonOutputV1` document or nothing. It carries nothing when the run fails before analysis starts (argument errors, fatal settings issues — §4.1) or when a signal interrupts the run (§6); those cases report on stderr only. Whenever analysis ran, a document is emitted **even on exit code 2**: run-level errors appear in `runErrors`, and diagnostics already produced by other adapters and files are included — failure isolation (monorepo.md §3) applies to the output, not just the process.
+- **Ordering:** `meta` is always the first line of any run that reaches analysis. `file` and `runError` lines are emitted in completion order, which under §6's current sequential, sorted-by-path processing is exactly path order — that guarantee holds only as long as file-level `analyze` stays sequential (§10's still-open file-level-parallelism question); a future move to parallel execution would need to either preserve it or explicitly relax it. `summary` is always the last line, present if and only if the run completed (see stdout validity below), and counts every severity so any `--fail-on` threshold can be recomputed without re-scanning every `file` line.
+- **Compatibility:** adding an optional field to an existing record, or adding a new `type` value, is a minor change; consumers must ignore unknown fields and skip records whose `type` they don't recognize. Changing or removing a field, or changing a record's semantics, bumps `version` (carried on the `meta` line).
+- **stdout validity:** lines are flushed as they are produced, not buffered — this is the point of choosing NDJSON. Stdout carries zero lines when the run fails before analysis starts (argument errors, fatal settings issues — §4.1); those cases report on stderr only. Once `meta` has been written, every subsequent line up to the point of interruption is a valid, independently parseable record. A signal (§6) stops the stream after whatever `file`/`runError` lines already completed — **no `summary` line is emitted**, which is exactly how a consumer detects an interrupted run: stream ended without a `summary` record. This differs deliberately from the old buffered contract ("exactly one document or nothing"): partial NDJSON output is valid and expected on interruption, not an error state. Whenever analysis ran, output is emitted **even on exit code 2**: run-level errors appear as `runError` lines, diagnostics already produced by other adapters and files are included as `file` lines, and (unless a signal also cut the run short) a `summary` line still closes the stream — failure isolation (monorepo.md §3) applies to the output, not just the process.
 
-Example:
+Example (a clean run — each line is independently valid JSON; the block as a whole is NDJSON, not one JSON document):
 
-```jsonc
-{
-  "version": 1,
-  "files": [
-    {
-      "path": "src/components/Toggle.vue",
-      "diagnostics": [
-        {
-          "severity": "error",
-          "code": "vue-html-bridge/non-finite-attribute-value",
-          "message": "...",
-          "origin": "validator",
-          "adapterId": "markuplint",
-          "range": { "start": 116, "end": 123 },
-          "position": { "startLine": 6, "startColumn": 19, "endLine": 6, "endColumn": 26 },
-          "relatedInformation": [],
-          "evidence": { "variantCount": 2, "truncated": false }
-        }
-      ]
-    }
-  ],
-  "runErrors": [],
-  "summary": { "filesAnalyzed": 1, "errors": 1, "warnings": 0, "infos": 0, "hints": 0, "runErrors": 0 }
-}
+```text
+{"type":"meta","version":1}
+{"type":"file","path":"src/components/Toggle.vue","diagnostics":[{"severity":"error","code":"vue-html-bridge/non-finite-attribute-value","message":"...","origin":"validator","adapterId":"markuplint","range":{"start":116,"end":123},"position":{"startLine":6,"startColumn":19,"endLine":6,"endColumn":26},"relatedInformation":[],"evidence":{"variantCount":2,"truncated":false}}]}
+{"type":"file","path":"src/components/Menu.vue","diagnostics":[]}
+{"type":"summary","filesAnalyzed":2,"errors":1,"warnings":0,"infos":0,"hints":0,"runErrors":0}
 ```
 
 ## 8. Run outcomes and exit codes
@@ -276,7 +266,7 @@ The run outcome model distinguishes **diagnostics** (per-file analysis results, 
 - a file read error, keyed by path;
 - an internal error.
 
-After a run-level error, everything unaffected continues: other adapters keep validating, other files keep being analyzed, and every result already produced stays in the output (text and JSON alike). The error only determines the exit code.
+After a run-level error, everything unaffected continues: other adapters keep validating, other files keep being analyzed, and every result already produced stays in the output (text and NDJSON alike). The error only determines the exit code.
 
 | Exit code | Meaning |
 | --- | --- |
@@ -295,11 +285,11 @@ Precedence: signal code > 2 > 1 > 0. A misconfigured CI job must never pass as "
 4. File enumeration: positional args replace `include`; directory expansion; `exclude` applies; dotfile and `node_modules` behavior; symlink/duplicate arguments dedupe to one analysis; a path outside the workspace root is a run-level error; ordering is deterministic; no matches exits 2 with a clear message.
 5. URI construction: `pathToFileURL`-based, stable per file within a run, correct on Windows paths and percent-encoded characters.
 6. Text output golden, including related information, stderr run-level errors, and the summary line.
-7. JSON goldens for three shapes: a clean run; an exit-2 run (populated `runErrors` plus surviving diagnostics from healthy adapters/files); an interrupted run (empty stdout). `JSON.parse` round-trip; `version` present; unknown-field tolerance documented for consumers; no generated HTML or source text embedded.
+7. NDJSON goldens for three shapes: a clean run (`meta`, `file`×N, `summary`); an exit-2 run (`meta`, `file`/`runError` lines interleaved in completion order, `summary`); an interrupted run (`meta` plus zero or more `file`/`runError` lines, no `summary`). Every line parses independently with `JSON.parse`; `meta.version` present and first; unknown `type` values and unknown fields are tolerated by the golden-comparison harness itself (documented for external consumers); no generated HTML or source text embedded.
 8. Offset → line/column conversion at the boundary: CRLF, emoji, zero-width ranges — the same fixture family as language-server §13.1, shared as fixtures.
 9. Run outcome model: multi-file × multi-adapter fixture where one adapter's session fails — the failure appears once at run level, the other adapter's diagnostics and other files' results survive in the output, exit is 2. File read error behaves the same way.
 10. Exit codes: `--fail-on` threshold interactions across all severities; run-level error dominance; `--fail-on never`.
-11. Signals: SIGINT mid-analysis (abort, no partial rendering for the aborted file, empty stdout in JSON mode, exit 130, sessions disposed); SIGTERM → 143; a second signal during cleanup exits immediately.
+11. Signals: SIGINT mid-analysis (abort, no partial rendering for the file being analyzed when the signal arrived; in NDJSON mode `meta` plus any already-completed `file`/`runError` lines remain on stdout with no trailing `summary` line; exit 130; sessions disposed); SIGTERM → 143; a second signal during cleanup exits immediately.
 12. `--untrusted` combinations: trust-sensitive settings are forced (bundled Markuplint defaults, no external adapters) while shared safe settings (`include`/`exclude`, `warnVariantCount`, `maxConcurrency`, `customElements`, output flags) still apply from the same config; behavior matches the language server's restricted session on the same fixture.
 13. External adapter loading: the shared loader's gates apply identically to the language server's (contract-tested against adapter-loader.md); a load failure disables only that adapter and is reported once.
 14. E2E parity: on the language-server §13.3 fixture, both hosts are given the same trust policy, the same `resolveSettings` output (settings and issues compared), the same adapter loader results, and identical content (disk file == LSP buffer) — and report the same source diagnostics (code, range, severity, adapterId). A second, restricted-mode parity run asserts the same under `--untrusted` / an untrusted LSP workspace.
@@ -308,11 +298,11 @@ Precedence: signal code > 2 > 1 > 0. A misconfigured CI job must never pass as "
 
 Each item notes where the decision will be made.
 
-- Watch mode (`--watch`): overlaps with LSP debounce/cancellation machinery; decide after the initial release based on demand (ADR)
-- SARIF or other CI-native output formats, and NDJSON streaming for very large runs, on top of JSON v1 (ADR after initial-release feedback and the Phase 2 workspace-scale measurements)
-- stdin input (`--stdin --stdin-filename <path>`) for editor-less integrations (decide when requested)
-- File-level parallel `analyze` on top of adapter-level concurrency (after the Phase 2 workspace-scale measurements: wall time, peak memory, JSON size on representative repositories)
-- A persistent cross-run cache. analyzer.md §10.3 forbids writing generated HTML or source to disk, so any persistent cache needs its own design and privacy review (ADR; do not implement casually)
+- ~~Watch mode (`--watch`): overlaps with LSP debounce/cancellation machinery~~ — scoped out through Phase 3 (product decision, 2026-08-21); no current plan to build it, revisit if demand shows up (§1).
+- ~~SARIF or other CI-native output formats, and NDJSON streaming for very large runs, on top of JSON v1~~ — NDJSON is the CLI's machine-readable output from the initial release, replacing the previously designed buffered `--format json` (product decision, 2026-08-21; §7.2). SARIF/other CI-native formats remain open — decide after initial-release feedback (ADR).
+- ~~stdin input (`--stdin --stdin-filename <path>`) for editor-less integrations~~ — scoped out through Phase 3 (product decision, 2026-08-21); revisit if requested (§1).
+- File-level parallel `analyze` on top of adapter-level concurrency (after the Phase 2 workspace-scale measurements: wall time, peak memory, NDJSON output size on representative repositories)
+- ~~A persistent cross-run cache~~ — scoped out through Phase 3 (product decision, 2026-08-21); revisit based on real-world performance after initial use. analyzer.md §10.3 forbids writing generated HTML or source to disk, so if this is revisited it still needs its own design and privacy review (ADR; do not implement casually).
 
 ## 11. Proposed internal module layout
 
@@ -325,7 +315,7 @@ src/
 ├── line-index.ts     # offset → line/column at the output boundary
 ├── output/
 │   ├── text.ts
-│   └── json.ts       # CliJsonOutputV1 construction and buffering
+│   └── ndjson.ts      # CliNdjsonRecord line construction and streaming
 └── exit-codes.ts
 ```
 

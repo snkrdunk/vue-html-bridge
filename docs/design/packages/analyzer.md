@@ -524,7 +524,7 @@ Each item notes where the decision will be made.
 - Whether to add an SPI extension that lets a session expose a config fingerprint (e.g. `getConfigFingerprint(sourceFilename)`), to allow sharing the validation cache across files (ADR after measurement in Phase 2)
 - Whether runtime schema validation of adapter settings is done by the language server or by the analyzer (decided during Phase 1 implementation)
 - For a validator like Nu HTML Checker that requires a full document, the wrapper is added inside the adapter, and it must handle both excluding wrapper-only diagnostics and correcting ranges by itself. Whether this contract is sufficient will be verified by prototyping a second adapter. (Phase 4)
-- Whether to provide an opt-in debug API (disabled by default, with an explicit privacy note since it includes source/HTML) that dumps variants, mapping, and generated HTML (ADR in Phase 2)
+- ~~Whether to provide an opt-in debug API (disabled by default, with an explicit privacy note since it includes source/HTML) that dumps variants, mapping, and generated HTML~~ — scoped out through Phase 3 (product decision, 2026-08-21); revisit after real usage if debugging needs justify it. Its privacy-review requirement stands whenever this is revisited.
 
 ## 14. Proposed internal module layout
 

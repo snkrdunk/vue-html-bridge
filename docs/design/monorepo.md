@@ -42,7 +42,7 @@ The experience the user gets in the end is as follows:
 - Parsing arbitrary HTML injected via `v-html`
 - General symbolic execution of JavaScript
 - Automatic fixes or code actions for diagnostics
-- Watch mode for the CLI (the one-shot CLI ships in the initial release; `--watch` is a later ADR — cli.md §10)
+- Watch mode and stdin input for the CLI (the one-shot, file/glob-argument CLI ships in the initial release; scoped out through Phase 3 per product decision, 2026-08-21 — cli.md §1, §10)
 - Editor-specific extensions. The LSP client relies on each editor's existing features or a thin launch configuration.
 
 ## 3. Design principles
