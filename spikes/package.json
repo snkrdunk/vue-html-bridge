@@ -1,0 +1,26 @@
+{
+  "name": "spikes",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 technical spikes (implementation-plan.md §3). Not shipped, not part of the packages/* dependency graph.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "vue": "3.5.41",
+    "@vue/compiler-sfc": "3.5.41",
+    "@vue/compiler-dom": "3.5.41",
+    "@vue/compiler-core": "3.5.41",
+    "markuplint": "4.18.3"
+  },
+  "devDependencies": {
+    "@markuplint/config-presets": "4.18.0",
+    "@markuplint/rules": "4.18.3",
+    "@types/node": "26.2.0",
+    "cosmiconfig": "9.0.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
+  }
+}

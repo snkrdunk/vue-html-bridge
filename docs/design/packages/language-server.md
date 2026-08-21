@@ -124,7 +124,7 @@ The analyzer returns UTF-16 absolute offsets in the source. The language server 
 
 1. If the client's `general.positionEncodings` includes UTF-16, or if the client sends no capability at all, the server picks UTF-16.
 2. If the client does not offer UTF-16 and offers only UTF-8/UTF-32, the server uses a matching converter and returns that encoding in `ServerCapabilities.positionEncoding`.
-3. If the initial implementation cannot provide a non-UTF-16 converter, it should not fail with an initialize error; instead it should investigate compatibility further, but it must never claim to support an encoding it does not actually support. Phase 0 will settle the target client matrix.
+3. **Settled scope (ADR-0004):** Phase 1 supports UTF-16 only — `ServerCapabilities.positionEncoding` always negotiates to UTF-16, and no UTF-8/UTF-32 converter ships. This is safe because the highest-share clients (VS Code's `vscode-languageclient` library, Zed) never send `general.positionEncodings` at all today and always assume UTF-16, the LSP spec's mandatory fallback. UTF-8/UTF-32 support is in scope for Phase 2 Track 3 (implementation-plan.md §5) — real, actively-maintained clients (Neovim, Helix, Emacs/Eglot) do negotiate a non-UTF-16 preference, and the conversion math is already proven correct and cheap (`spikes/s3-utf16-lsp/position-index.ts`), so that work is productionizing a working prototype, not new research. The rule never changes: the server must never claim to support an encoding it does not actually support.
 
 The server builds a line index for each document version.
 
@@ -287,6 +287,7 @@ At a position with no diagnostic, the server returns `null`. It does not return 
 - A `.vue` URI belongs to the folder whose path is the longest matching prefix.
 - A single file outside any folder uses a restricted default session, which does not load external adapters or config.
 - On `workspace/didChangeWorkspaceFolders`, the server creates sessions for added folders and aborts/disposes analysis for removed folders.
+- Each workspace folder's session also owns one `TypeAnalysisContext` (core.md §2, ADR-0002), constructed alongside its analyzer and passed to `createWorkspaceAnalyzer` via `CreateWorkspaceAnalyzerOptions.typeContext` (analyzer.md §2). The session's own document store backs `TypeAnalysisContext.fs`, so an open-but-unsaved buffer for a type-dependency file (not just the `.vue` file currently being analyzed) is served ahead of disk content. The session calls `typeContext.invalidate(filenames)` from the same places it already reacts to file changes: `didChange`/`didSave` for an open type-dependency document, and the workspace file watcher (§9.3) for a non-open one. The single-file restricted session gets its own unshared `TypeAnalysisContext` for the same reason its analysis cache isn't shared with normal sessions (§10).
 
 ### 9.2 Settings
 
@@ -410,11 +411,11 @@ Each item lists where the decision will be made.
 
 - Whether to bundle a minimal client launcher in the language server package, or ship it as a separate package (decided at Phase 3's initial release)
 - Which client/version conditions justify adding pull diagnostics (ADR after Phase 2 measurements)
-- Whether to run TypeScript/Vue project service and core execution in a separate worker thread (core's public API is already async, so callers do not change even if this moves later; decided from Phase 0 response-time measurements; monorepo.md §14)
+- ~~Whether to run TypeScript/Vue project service and core execution in a separate worker thread~~ — resolved by the Phase 0 spike: budget met on every measured fixture, no migration for Phase 0/1 (ADR-0005; monorepo.md §14). Re-measured at the Phase 1 and Phase 2 performance gates; core's public API stays async regardless, so callers do not change even if this moves later.
 - Finer-grained trust levels depending on config format (JSON vs. JS). The initial version uses all-or-nothing (ADR once this is requested)
 - How long to keep the last-known-good session after a config parse error (decided during Phase 2 implementation)
 - Package specifier allowlist and PnP support for external adapter loading (Phase 3)
-- Initial support scope when an LSP client does not offer UTF-16 (settled by the Phase 0 client matrix)
+- ~~Initial support scope when an LSP client does not offer UTF-16~~ — resolved by the Phase 0 client matrix: UTF-16-only for Phase 1, UTF-8/UTF-32 in scope for Phase 2 Track 3 (ADR-0004, §5).
 
 ## 15. References
 

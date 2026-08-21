@@ -34,6 +34,18 @@ export interface CreateWorkspaceAnalyzerOptions {
   workspaceRoot: string;
   adapters: readonly ConfiguredAdapter[];
   generateOptions?: GenerateOptions;
+  /**
+   * Constructed and owned by the caller, one per workspace (ADR-0002; core.md
+   * §2). The analyzer forwards it unchanged on every internal
+   * `generateVariants` call and reads its current `epoch` when computing the
+   * core-result cache key (§10.2). The caller retains its own reference and
+   * calls `typeContext.invalidate(filenames)` directly when it observes a
+   * relevant file change — invalidation is a mutation on an object the
+   * caller already owns, not a separate analyzer API. Omitting this option
+   * is valid (core defaults to reading real files with no unsaved-buffer
+   * overlay and an epoch that never advances).
+   */
+  typeContext?: TypeAnalysisContext;
   maxConcurrency?: number;
   logger?: AnalyzerLogger;
 }
@@ -438,7 +450,7 @@ source hash
 + TypeScript project epoch
 ```
 
-A source being edited is identified by content hash, not by mtime.
+A source being edited is identified by content hash, not by mtime. "TypeScript project epoch" is `CreateWorkspaceAnalyzerOptions.typeContext.epoch` (core.md §2, ADR-0002) — a monotonic counter local to the workspace's `TypeAnalysisContext`, read fresh at cache-key-computation time on each `analyze()` call.
 
 ### 10.2 Adapter result cache
 

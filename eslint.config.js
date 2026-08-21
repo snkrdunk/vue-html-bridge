@@ -26,4 +26,19 @@ export default defineConfig([
       "no-console": ["warn", { allow: ["error"] }],
     },
   },
+  {
+    // Phase 0 spike code (implementation-plan.md §3): lives outside src/,
+    // is never shipped, and works directly with loosely-typed Babel/Vue
+    // compiler AST nodes where full typing isn't worth the cost for
+    // throwaway exploration code. Correctness is enforced by the spike's
+    // own tests, not by strict typing here.
+    files: ["spikes/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_" },
+      ],
+    },
+  },
 ]);

@@ -17,9 +17,10 @@ jobs:
       fail-fast: false
       matrix:
         # Matches vitest's supported engines (packages/*/package.json).
-        # TODO(Phase 0 spike S2): add a Markuplint-version matrix dimension
-        # once adapter-markuplint depends on a pinned Markuplint version
-        # (adapter-markuplint.md §9.2 item 13; monorepo.md §14).
+        # Markuplint is pinned to a single version (^4.18.3, ADR-0003) —
+        # adapter-markuplint.md §9.2 item 13's version-matrix dimension is
+        # deliberately deferred to Phase 3, when a second supported major
+        # exists to matrix against (monorepo.md §8 "CI matrix" policy).
         node-version: [20, 22, 24]
     steps:
       - uses: actions/checkout@v4

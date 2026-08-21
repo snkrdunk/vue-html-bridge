@@ -67,6 +67,8 @@ Adapter metadata:
     configFilePatterns: [
       "**/.markuplintrc",
       "**/.markuplintrc.*",
+      "**/.config/markuplintrc",
+      "**/.config/markuplintrc.*",
       "**/markuplint.config.*",
       "**/package.json"
     ]
@@ -74,26 +76,23 @@ Adapter metadata:
 }
 ```
 
-`maxConcurrentValidations: 1` is a conservative initial value, because we have not yet confirmed the engine is safe to run concurrently. We will consider raising it once the engine-reuse spike (§3.1) gives us results. `configFilePatterns` must stay in sync with the config search targets of the supported Markuplint version. This synchronization is not maintained by hand: the config-search filename list of the supported Markuplint version is recorded as a source-controlled fixture during the Phase 0 spike (§3.1 item 7), and a drift test fails when a Markuplint update changes the search targets or when `configFilePatterns` no longer matches the fixture (§9.2 item 14).
+`maxConcurrentValidations: 1` is a conservative initial value; the Phase 0 spike (§3.1 item 5) found no evidence of unsafe shared state across concurrent independent `MLEngine` instances, but did not stress a *shared* engine instance or heavier real-world config, so this stays at `1` pending a dedicated future concurrency spike (ADR-0003) rather than being raised now. `configFilePatterns` must stay in sync with the config search targets of the supported Markuplint version. This synchronization is not maintained by hand: the config-search filename list of the supported Markuplint version is recorded as a source-controlled fixture (`packages/adapter-markuplint/fixtures/config-search-filenames.json`, ADR-0003), and a drift test fails when a Markuplint update changes the search targets or when `configFilePatterns` no longer matches the fixture (§9.2 item 14). The Phase 0 spike found the original 4-glob list silently missed every `.config/markuplintrc*` search target (`**/.markuplintrc.*` only matches a filename that itself starts with a dot, which `.config/markuplintrc.js` does not) — the two `.config/` globs above are the fix.
 
 `supportsCancellation: false` applies as long as the Markuplint engine does not accept a native `AbortSignal`. The adapter checks the signal before and after execution, and the analyzer discards stale results.
 
 ## 3. Using the Markuplint API
 
-Markuplint offers a public Node API: `MLEngine`, `exec()`, `configFile` / `config` / `noSearchConfig`, and so on. We use the ESM Node API, not the CLI process or the JSON formatter.
+Markuplint offers a public Node API. We use the ESM Node API, not the CLI process or the JSON formatter. The Phase 0 spike (ADR-0003) confirmed the real entry point against installed `markuplint@4.18.3`: **`MLEngine.fromCode(sourceCode, options)`**, not a constructor plus a separate in-memory-file helper.
 
 ```ts
 import { MLEngine } from "markuplint";
 
-// Conceptual code. How to build an MLFile in memory
-// will be fixed in Phase 0, against the public API of the target Markuplint version.
-const file = await createInMemoryMlFile({
-  sourceCode: request.html,
-  filename: request.virtualFilename,
-  parser: "html",
-});
-
-const engine = new MLEngine(file, {
+const engine = await MLEngine.fromCode(request.html, {
+  // MUST be an absolute path with `workspace` omitted — MLFile.path then
+  // equals this string exactly, and overrides/parser/excludeFiles matching
+  // (evaluated against MLFile.path) is fully decoupled from sourceFilename's
+  // real directory, matching §4.2's contract.
+  name: request.virtualFilename,
   configFile: resolvedConfigFile,
   noSearchConfig: true,
   fix: false,
@@ -101,21 +100,24 @@ const engine = new MLEngine(file, {
 });
 
 const result = await engine.exec();
+await engine.close();
 ```
+
+`fromCode` builds an in-memory `MLFile` (Markuplint's own `'code-base'` file kind) whose content is served directly from the string passed in — no filesystem write occurs. `engine.setCode()` re-parses without re-resolving config, giving real reuse across repeated validation of the same logical target (§8).
 
 ### 3.1 Acceptance criteria for the technical spike
 
-Before we pin a Markuplint version, we must confirm the following with real code:
+The Phase 0 spike confirmed all seven with real code (ADR-0003; evidence in `spikes/s2-markuplint/*.spike.test.ts`):
 
-1. We can validate an HTML string without writing it to the filesystem, using an arbitrary `.html` virtual filename.
-2. `extends`, plugins, `rules`, and `nodeRules` in an explicit config file resolve correctly.
-3. Vue parser mappings in the config do not apply to the virtual `.html`, even if present.
-4. We can determine exactly which substring of the generated HTML a violation points to — the unit, base, and end semantics of line/col/raw.
-5. We measure which layer (engine or file) can be reused across calls with the same config. We also confirm whether concurrent `validate` calls are safe, and use that to decide the value of `maxConcurrentValidations`.
-6. We fix the first version of the generated-html profile's rule manifest, based on the rule list of the target Markuplint major version.
-7. We record the config-search filename list of the target Markuplint version as a source-controlled fixture. `configFilePatterns` (§2) is asserted against this fixture, so a version update that adds or removes a search target fails a test instead of drifting silently.
+1. **Confirmed, no temp-file fallback needed.** We validate an HTML string without writing it to the filesystem, using an arbitrary absolute `.html` virtual filename passed as `name`.
+2. **Confirmed.** `extends`, plugins, `rules`, and `nodeRules` in an explicit config file resolve correctly (verified against a config combining all three).
+3. **Confirmed.** Vue parser mappings in the config do not apply to the virtual `.html`, even if present — the mapping is a regex tested against `MLFile.path`, which never matches a `.vue`-targeted pattern.
+4. **Confirmed** — see §6.1 for the pinned unit/base/end semantics.
+5. **Confirmed for the surface tested.** `engine.setCode()` reuses a resolved config across calls; 8 concurrent independent `MLEngine` instances showed no cross-talk. `maxConcurrentValidations` stays at the conservative `1` from §2 — this is evidence of no *demonstrated* hazard, not proof of safety under heavier concurrent load (shared engine instance, plugin-heavy config), which is left to a future targeted spike.
+6. **Done.** The first version of the generated-html profile's rule manifest is committed at `packages/adapter-markuplint/fixtures/rule-manifest.v1.json` — see §5.
+7. **Done.** The config-search filename list is committed at `packages/adapter-markuplint/fixtures/config-search-filenames.json`, derived from `cosmiconfig`'s real `getDefaultSearchPlaces("markuplint")` and empirically verified with an upward-search test. This surfaced the `configFilePatterns` gap fixed in §2.
 
-Only if the public API cannot satisfy item 1, we consider a temporary-file fallback inside the adapter. Even then, it must use a safe OS temp directory, a filename that does not collide across variants, and `finally` cleanup — and must not leak temp files to the analyzer/core. We will not parse human-readable CLI stdout.
+The temporary-file fallback described below was not needed (criterion 1 passed directly) and remains documented only as a contingency for a future Markuplint major that might change this: it must use a safe OS temp directory, a filename that does not collide across variants, and `finally` cleanup — and must not leak temp files to the analyzer/core. We will not parse human-readable CLI stdout.
 
 ### 3.2 Module format
 
@@ -194,6 +196,8 @@ Use `profileRuleOverrides` to bring back a specific rule that the overlay disabl
 
 Finalizing the first version of the rule manifest is an acceptance criterion for Phase 0; we do not move on to the Phase 1 vertical slice until it is finalized (monorepo.md §14). Which HTML/ARIA/accessibility rules run by default is itself product behavior, so we do not defer it as a mere implementation detail.
 
+**Phase 0 outcome (ADR-0003):** the profile's baseline `extends` target is **`markuplint:recommended-static-html`** — Markuplint's own built-in preset for non-templated static output, which re-enables rules like `character-reference` and `end-tag` that a plain `recommended` preset (aimed at hand-authored documents) does not assume. The rule manifest v1 is committed at `packages/adapter-markuplint/fixtures/rule-manifest.v1.json`: all 38 rules from the pinned Markuplint version, each tagged `keptInGeneratedHtmlProfile` (29 kept / 9 disabled) with a reason, and every kept rule additionally tagged with its `applicability` (`html-semantics` / `source-representation` / `document-context`) matching this section's own examples (`no-use-event-handler-attr` → `source-representation`; ID-reference and landmark/heading rules → `document-context`; everything else → `html-semantics`).
+
 ## 6. Converting violations
 
 Conceptually, the conversion looks like this:
@@ -216,14 +220,16 @@ function toGeneratedDiagnostic(
 
 ### 6.1 Range
 
-- We pin down the line/column base and the character unit of a Markuplint violation using fixtures for the supported version.
-- We build a line-start index from `html` once, and convert line/column into a UTF-16 absolute offset.
-- When `raw` or a length is available, we confirm that substring matches `html.slice(start, end)`.
-- If no end is available, we use the token/raw length. If nothing is available, we use a zero-width range or `undefined`, and never widen it to an unrelated HTML token.
+The Phase 0 spike (ADR-0003) pinned these down with real code against the pinned Markuplint version (`spikes/s2-markuplint/violation-location.spike.test.ts`):
+
+- `line` and `col` are both **1-based**.
+- The unit is **UTF-16 code units** — confirmed against both an emoji surrogate pair and a combining-mark sequence, each counted as multiple code units rather than one code point/grapheme. We build a line-start index from `html` once, and convert `(line, col)` into a UTF-16 absolute offset via that index.
+- `Violation` has **no explicit `end` field** — the end offset is `start + raw.length` (UTF-16 code units). This holds even when `raw` spans multiple lines (e.g. an opening tag broken across lines), since `start` is already an absolute offset. When `raw` is available, we confirm that substring matches `html.slice(start, end)`.
+- A violation with **no locatable position** (e.g. a `config-error`) reports `raw: ""` at `(1, 1)` — this must be treated as a zero-width/`undefined` range (never a real one-column range at the document start), and never widened to an unrelated HTML token.
 - Core's output follows a single-line contract, but the adapter contract and its unit tests also support multi-line HTML. This is so the adapter keeps working correctly with a future wrapper, or when used standalone.
 - Fixtures include CRLF, emoji, and combining characters.
 
-If we find that Markuplint's coordinates are not UTF-16, we build a dedicated index that converts from code point/byte to UTF-16. We never use a plain `lineStart + col` without justification.
+Markuplint's coordinates are UTF-16, confirmed empirically — no code-point/byte conversion layer is needed for the pinned version. We never use a plain `lineStart + col` without this justification on record.
 
 ### 6.2 Severity/code URL
 
@@ -293,7 +299,7 @@ We save both the raw Markuplint violation and the normalized result as fixtures.
 
 Each item notes where the decision will be made.
 
-- The best public API for passing a source string plus virtual filename to `MLEngine` (Phase 0 spike, §3.1)
+- ~~The best public API for passing a source string plus virtual filename to `MLEngine`~~ — resolved by the Phase 0 spike: `MLEngine.fromCode(sourceCode, { name, configFile, noSearchConfig, ... })`, `name` as an absolute path (§3, ADR-0003).
 - Whether a generated file excluded by config's `excludeFiles` should be a silent ignore or an info diagnostic (decided during Phase 1 implementation)
 - Capability update once Markuplint offers native cancellation (once upstream supports it)
 

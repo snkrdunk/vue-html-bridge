@@ -434,11 +434,13 @@ Phase 1 and Phase 2 are internal milestones, not published to npm. The "initial 
 
 ### Phase 0: Types and technical spikes
 
-- Confirm that we can build a Decision Model from the compiler AST and TypeScript type analysis.
-- Confirm that Markuplint's Node API can reliably take string HTML and an explicit config, and return generated ranges.
-- Build round-trip fixtures for the LSP client and UTF-16 offsets.
-- Measure core's longest synchronous segment on representative fixtures (a large SFC, a large type environment), and define a response-time budget (target: 100 ms for a single synchronous segment). If the budget is exceeded, decide in an ADR, before the initial release, whether to move core execution to a worker thread, and design how to pass `TypeAnalysisContext` across the worker boundary.
-- Finalize the first version of the rule manifest for Markuplint's generated-html profile (adapter-markuplint §5).
+Completed (ADR-0002 through ADR-0005; spike code and findings under `spikes/`):
+
+- Confirmed we can build a Decision Model from the compiler AST and TypeScript type analysis: `@vue/compiler-sfc`'s exported type-resolution primitives handle cross-file `defineProps<T>()` shape resolution, with a bespoke narrow resolver on top for literal-union domain expansion; `TypeAnalysisContext` is caller-injected but deliberately not a full `ts.LanguageService`/project service (ADR-0002).
+- Confirmed Markuplint's Node API (`MLEngine.fromCode`) reliably takes string HTML and an explicit config, and returns generated ranges with pinned UTF-16 line/col/raw semantics; `markuplint@4.18.3` is pinned (ADR-0003).
+- Built round-trip fixtures for UTF-16/UTF-8/UTF-32 offsets and surveyed the LSP client matrix; Phase 1 stays UTF-16-only, Phase 2 Track 3 adds UTF-8/UTF-32 (ADR-0004).
+- Measured core's longest synchronous segment on representative fixtures (including a synthetic 60-decision stress case): 2–3 orders of magnitude under the 100 ms budget on every fixture measured. No worker-thread migration for Phase 0/1; re-measured at the Phase 1 and Phase 2 performance gates rather than treated as final (ADR-0005).
+- Finalized the first version of the rule manifest for Markuplint's generated-html profile (adapter-markuplint §5; `packages/adapter-markuplint/fixtures/rule-manifest.v1.json`).
 
 ### Phase 1: Vertical slice
 
@@ -474,9 +476,9 @@ Phase 1 and Phase 2 are internal milestones, not published to npm. The "initial 
 
 The following will be decided by ADR, after an implementation spike or measurement. Each item notes where the decision will be made.
 
-- Whether the Vue/TypeScript project service is shared inside the core process, or injected by analyzer (Phase 0 spike)
-- Whether `sourceFilename` or `virtualFilename` should apply to Markuplint's config override (Phase 0 spike; adapter-markuplint §4.2)
-- The scope of support if a client chooses UTF-8/UTF-32 position encoding (Phase 0 client matrix)
+- ~~Whether the Vue/TypeScript project service is shared inside the core process, or injected by analyzer~~ — resolved: caller-injected, but as a thin `TypeAnalysisContext` (fs seam + invalidation), not a full project service (ADR-0002; core.md §2).
+- ~~Whether `sourceFilename` or `virtualFilename` should apply to Markuplint's config override~~ — confirmed as designed: `virtualFilename` (adapter-markuplint §4.2), empirically verified against the real `MLEngine.fromCode` API (ADR-0003).
+- ~~The scope of support if a client chooses UTF-8/UTF-32 position encoding~~ — resolved: UTF-16-only for Phase 1, UTF-8/UTF-32 in scope for Phase 2 Track 3 (ADR-0004; language-server.md §5).
 - The default threshold for the variant warning, and a way to measure it without telemetry (after Phase 2 measurement)
 - Whether sandboxing external adapters is feasible. At minimum, the initial release relies on trust and explicit configuration. (Phase 3)
 - The conditions for moving from push diagnostics to pull diagnostics (after Phase 2 measurement)

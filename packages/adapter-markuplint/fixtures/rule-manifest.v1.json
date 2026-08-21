@@ -1,0 +1,259 @@
+[
+  {
+    "ruleId": "attr-duplication",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, independent of authoring style."
+  },
+  {
+    "ruleId": "attr-value-quotes",
+    "category": "style",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Source-formatting-only (quote-style consistency); core's serializer emits one fixed quoting style, so this never meaningfully applies to generated output."
+  },
+  {
+    "ruleId": "case-sensitive-attr-name",
+    "category": "style",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Source-formatting-only (attribute-name casing convention), not generated-fragment validity."
+  },
+  {
+    "ruleId": "case-sensitive-tag-name",
+    "category": "style",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Source-formatting-only (tag-name casing convention); core.md §6.2 already preserves real casing during serialization."
+  },
+  {
+    "ruleId": "character-reference",
+    "category": "style",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "markuplint:recommended-static-html re-enables this over the (empty) code-styles preset for genuinely static output; keep for the same reason."
+  },
+  {
+    "ruleId": "class-naming",
+    "category": "naming-convention",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Enforces a project's authoring naming convention (e.g. BEM), not generated-HTML validity; opt in via profileRuleOverrides if desired."
+  },
+  {
+    "ruleId": "deprecated-attr",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model/spec validity."
+  },
+  {
+    "ruleId": "deprecated-element",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model/spec validity."
+  },
+  {
+    "ruleId": "disallowed-element",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity."
+  },
+  {
+    "ruleId": "doctype",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Document-root-only: a component fragment is never a full document (monorepo.md §6.5)."
+  },
+  {
+    "ruleId": "end-tag",
+    "category": "style",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "markuplint:recommended-static-html re-enables this; matches core.md §6.2's guarantee that non-void elements always get an explicit end tag."
+  },
+  {
+    "ruleId": "heading-levels",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "document-context",
+    "reason": "Whether heading nesting is sequential depends on where the fragment is inserted into a parent document (monorepo.md §6.5)."
+  },
+  {
+    "ruleId": "id-duplication",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Core to the feature: v-for's 2-item exemplar (core.md §4.5) exists specifically to surface duplicate static ids within one generated fragment."
+  },
+  {
+    "ruleId": "ineffective-attr",
+    "category": "style",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Despite category:style, this flags an attribute placed on an element type where it has no effect — a content-model concern, not formatting."
+  },
+  {
+    "ruleId": "invalid-attr",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Attribute-value validity, the rule adapter-markuplint.md §5.4's example (aria-pressed) is built around."
+  },
+  {
+    "ruleId": "label-has-control",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local."
+  },
+  {
+    "ruleId": "landmark-roles",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "document-context",
+    "reason": "Landmark uniqueness/nesting correctness depends on the rest of the page the fragment is placed into."
+  },
+  {
+    "ruleId": "neighbor-popovers",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local."
+  },
+  {
+    "ruleId": "no-ambiguous-navigable-target-names",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local."
+  },
+  {
+    "ruleId": "no-boolean-attr-value",
+    "category": "style",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Source-formatting preference (e.g. disabled=\"disabled\" vs. disabled); core.md §6.2 already always emits the bare boolean-attribute form, so this never fires against bridge output either way."
+  },
+  {
+    "ruleId": "no-consecutive-br",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local."
+  },
+  {
+    "ruleId": "no-default-value",
+    "category": "style",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Source-formatting preference (omitting an attribute equal to its default), not a generated-HTML validity concern."
+  },
+  {
+    "ruleId": "no-duplicate-dt",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, fragment-local."
+  },
+  {
+    "ruleId": "no-empty-palpable-content",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, fragment-local."
+  },
+  {
+    "ruleId": "no-hard-code-id",
+    "category": "maintainability",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Flags any literal id attribute; Vue templates routinely hardcode static ids intentionally, and the bridge's own id-duplication detection (core.md §4.5) depends on literal ids surviving into generated output."
+  },
+  {
+    "ruleId": "no-orphaned-end-tag",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Well-formedness, fragment-local (core's serializer should never actually produce this, but keep it as a safety net)."
+  },
+  {
+    "ruleId": "no-refer-to-non-existent-id",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "document-context",
+    "reason": "adapter-markuplint.md §5's own example: aria-controls/for/href=\"#id\" may reference an id outside the current fragment."
+  },
+  {
+    "ruleId": "no-use-event-handler-attr",
+    "category": "maintainability",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "source-representation",
+    "reason": "adapter-markuplint.md §5's own example: a Vue @click synthesized into onclick=\"dummy-fn\" (core.md §5.3) is indistinguishable from a real source onclick by looking at the HTML string alone; the analyzer suppresses this using core's synthetic provenance (core.md §5.4), not the adapter."
+  },
+  {
+    "ruleId": "permitted-contents",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, fragment-local."
+  },
+  {
+    "ruleId": "placeholder-label-option",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, fragment-local."
+  },
+  {
+    "ruleId": "require-accessible-name",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local."
+  },
+  {
+    "ruleId": "require-datetime",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Attribute-value validity, fragment-local."
+  },
+  {
+    "ruleId": "required-attr",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, fragment-local."
+  },
+  {
+    "ruleId": "required-element",
+    "category": "validation",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity; its document-root use (head>meta[charset]) only fires via a nodeRule selector that never matches a fragment lacking <head>, so no separate disable is needed."
+  },
+  {
+    "ruleId": "required-h1",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Document-root-only: a fragment legitimately may have zero h1 elements because the h1 lives in the surrounding page (monorepo.md §6.5)."
+  },
+  {
+    "ruleId": "table-row-column-alignment",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local."
+  },
+  {
+    "ruleId": "use-list",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local."
+  },
+  {
+    "ruleId": "wai-aria",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value validity, fragment-local; adapter-markuplint.md §6's aria-pressed example."
+  }
+]

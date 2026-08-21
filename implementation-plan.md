@@ -26,16 +26,16 @@ These come from monorepo.md §3 and shape every task below:
 
 Goal: an empty but fully wired monorepo where every later PR lands with CI, types, and tests already enforced.
 
-| # | Task | Notes |
-| --- | --- | --- |
-| A1 | `git` hygiene: commit the design docs; pin the Rev. 8 comparison base of `decision-changes.md` by commit hash | decision-changes.md notes this explicitly |
-| A2 | pnpm workspace: `pnpm-workspace.yaml`, root `package.json`, `tsconfig.base.json` | Layout per monorepo.md §4.2 |
-| A3 | Package skeletons for `core`, `validator-api`, `analyzer`, `adapter-markuplint`, `language-server`, `settings`, `cli`, `adapter-testkit` with correct names, `"type": "module"`, internal `workspace:*` deps matching §4.1 exactly | Enforce "no cycles / core depends on nothing internal / nothing depends on cli" with a dependency-lint check (e.g. a script or dependency-cruiser) in CI |
-| A4 | Test runner (Vitest), TypeScript strict config, lint/format | ESM-first because Markuplint is ESM (adapter-markuplint §3.2) |
-| A5 | CI: typecheck + test on a Node version matrix; placeholder for the Markuplint version matrix | Matrix values fixed after the Phase 0 spike pins versions |
-| A6 | Package build pipeline: per-package `exports` / `types` / `bin` maps, declaration output, `pnpm -r build`, ESM cross-import check between workspace packages | Tooling per ADR-0001; publish-side verification (pack/install smoke test) is a Phase 3 task |
-| A7 | `docs/adr/` directory + ADR template; ADR-0001 records the build/release tooling decision (Changesets is the candidate per monorepo.md §4.2) | Every "open question" in the design docs resolves into an ADR here |
-| A8 | `examples/playground/` stub with 2–3 fixture `.vue` files used by spikes and later E2E | Include the §13.3 language-server fixture (`loggedIn` / `aria-controls`) |
+| #   | Task                                                                                                                                                                                                                               | Notes                                                                                                                                                    |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1  | `git` hygiene: commit the design docs; pin the Rev. 8 comparison base of `decision-changes.md` by commit hash                                                                                                                      | decision-changes.md notes this explicitly                                                                                                                |
+| A2  | pnpm workspace: `pnpm-workspace.yaml`, root `package.json`, `tsconfig.base.json`                                                                                                                                                   | Layout per monorepo.md §4.2                                                                                                                              |
+| A3  | Package skeletons for `core`, `validator-api`, `analyzer`, `adapter-markuplint`, `language-server`, `settings`, `cli`, `adapter-testkit` with correct names, `"type": "module"`, internal `workspace:*` deps matching §4.1 exactly | Enforce "no cycles / core depends on nothing internal / nothing depends on cli" with a dependency-lint check (e.g. a script or dependency-cruiser) in CI |
+| A4  | Test runner (Vitest), TypeScript strict config, lint/format                                                                                                                                                                        | ESM-first because Markuplint is ESM (adapter-markuplint §3.2)                                                                                            |
+| A5  | CI: typecheck + test on a Node version matrix; placeholder for the Markuplint version matrix                                                                                                                                       | Matrix values fixed after the Phase 0 spike pins versions                                                                                                |
+| A6  | Package build pipeline: per-package `exports` / `types` / `bin` maps, declaration output, `pnpm -r build`, ESM cross-import check between workspace packages                                                                       | Tooling per ADR-0001; publish-side verification (pack/install smoke test) is a Phase 3 task                                                              |
+| A7  | `docs/adr/` directory + ADR template; ADR-0001 records the build/release tooling decision (Changesets is the candidate per monorepo.md §4.2)                                                                                       | Every "open question" in the design docs resolves into an ADR here                                                                                       |
+| A8  | `examples/playground/` stub with 2–3 fixture `.vue` files used by spikes and later E2E                                                                                                                                             | Include the §13.3 language-server fixture (`loggedIn` / `aria-controls`)                                                                                 |
 
 Exit criteria: `pnpm install && pnpm -r build && pnpm -r test` passes on CI with empty packages; dependency-direction lint active.
 
@@ -122,6 +122,7 @@ The largest step; split into PR-sized slices in this order:
 4. **TypeScript project context** (per ADR-0002's updated design): project service creation/sharing/disposal in its decided owner; unsaved SFC script content reflected into the type environment; the symbol/access-path/type resolution used by slice 5. Tests: imported type definitions resolve, unsaved script content is honored, and a tsconfig change is picked up by a subsequent analysis. The epoch-keyed cache-invalidation half lands with the Phase 2 caches (Track 2).
 5. **Per-node decisions** (Phase-1 shape): boolean / literal-union domains for `v-if` and `v-bind`, independent per node; `v-for` single exemplar; dummy/sentinel values with the form-value table (§5.4); `v-html` exclusion and comment stripping. `v-on` / `v-model` are **not** in Phase 1: they emit `synthetic` provenance, which the Phase 1 scope excludes — they move to Phase 2 Track 1 together with the normalization that consumes them. The Phase-1 directive set is exactly what the E2E fixture needs.
 6. **Async pipeline shell** (§2, §9): `generateVariants` returning a Promise; `signal.throwIfAborted()` before every environment; a **macrotask** yield (`setImmediate`-class) on an elapsed-time budget rather than per environment — a bare `await Promise.resolve()` never reaches the I/O phase, so `didChange` would stay unobservable, while yielding on every environment is too slow; fix the interval by benchmark. `AbortError` on cancel, never a partial result, stats (`decisionCount`…`warningThresholdExceeded`), `warnVariantCount` warning, `customElements` matching.
+
 - Tests from core.md §10 achievable now: 3 (branch exclusivity is a property of a single IF node's branch decision — no cross-expression correlation needed), 4 (the literal-union/nullish/general-string subset), 7 (the component/slot/`v-html` exclusion half), 8–15, 17 (15 ships here because slice 3 implements the zero-width rules). Tests 1–2, 5, 16, the unevaluable-expression half of 4, and the custom-directive half of 7 belong to Phase 2 features; add them then.
 
 ### Step 4 — `@vue-html-bridge/adapter-markuplint`
@@ -176,6 +177,7 @@ Goal: the design's actual semantic core (correlation, aggregation, provenance) p
 3. `v-for` 0/1/2 with collection-cardinality decisions correlated with interpretable `length` predicates; conservative fallback for `> 2` style predicates and non-identity collections (§4.5).
 4. Full directives table (§5.3), including `v-on` → `onclick="dummy-fn"` and `v-model` element-specific output (moved here from Phase 1 because they emit `synthetic` provenance), `v-bind` modifiers, conflict rules; Vue builtins: Transition/Teleport/TransitionGroup/Suspense, `v-slot` recognition order (§5.2); custom-directive removal diagnostics.
 5. Full provenance set: add `finite-domain` and `synthetic` (§5.4).
+
 - Completes core.md §10 tests 1–3, 5, 6, 7, 15, 16 (3 and 15 already shipped in Phase 1; the Phase 2 halves of 4 and 7 land here).
 
 ### Track 2 — analyzer: normalization, aggregation, cache, reconfigure
@@ -184,6 +186,7 @@ Goal: the design's actual semantic core (correlation, aggregation, provenance) p
 2. Two-stage aggregation (§8): occurrenceKey / sourceKey exactly as specified; severity-max; prefer-duplicates-over-wrong-merge; relatedInformation cap 8; evidence truncation at 5. Implement it as a streaming accumulator — remap → normalize → `accumulator.add` per (member variant × diagnostic) — so memory never scales with a materialized `variant × diagnostic` occurrence array; the accumulator holds counts plus evidence only up to its caps, which matches the evidence-bound spec by construction (analyzer.md §4's staged pipeline remains as the type-level structure).
 3. Caches (§10): core result cache keyed with the ADR-0002 project epoch (the tsconfig/dependency epoch-bump wiring and its invalidation tests land here); session-scoped adapter validation cache; LRU bounded by entry count and approximate bytes with a defined eviction policy; nothing cached on abort/failure. Fix the key-normalization/hash spec in one module: stable sorted-key JSON canonicalization, one hash algorithm (e.g. SHA-256) with a path-safe encoding for the virtual-filename segment, no value re-comparison on hash hits (a documented reliance on the hash), Windows path/case normalization for `sourceFilename`. Reconcile the "adapter version" component of the §10.2 key: the SPI exposes no version field and the cache dies with its session, so session generation subsumes it — update analyzer.md, or add an optional SPI version field, and record which.
 4. `reconfigure` (§11): settings-hash diff + `invalidateAdapters` forced recreation; atomic session swap; dispose-after-drain. This is the only route for config-file content changes — wire it before Track 4's watcher.
+
 - Completes analyzer.md §12 tests 5–9, 12–14, 17 (plus the Phase 2 halves of 3 and 12). ADR for the transformation-group-ID field on `MappingEntry` (§13) when aggregation is implemented.
 
 ### Track 3 — language server: interaction quality
@@ -193,6 +196,7 @@ Goal: the design's actual semantic core (correlation, aggregation, provenance) p
 3. Session-level failure dedup per workspace using the `adapter/<id>/…` code convention (§7.3).
 4. Shutdown/exit lifecycle (§12): stop scheduling, cancel all timers and AbortControllers, dispose all workspace analyzers, exit-code convention, best-effort dispose on process signals — this is the implementation behind protocol test 10.
 5. Non-UTF-16 position converters (UTF-8/UTF-32), if and only if ADR-0004 put them in scope; unit test 1 grows to cover them.
+
 - Completes language-server §13.1 items 1–3 and §13.2 items 4–5, 7, 10.
 
 ### Track 4 — settings, config watching, multi-root, trust
@@ -201,6 +205,7 @@ Goal: the design's actual semantic core (correlation, aggregation, provenance) p
 2. Config watching (§9.3) registers the bridge settings files (`.vue-html-bridge.json` / `package.json`) and each enabled adapter's `configFilePatterns`, routing a match to settings reload or `reconfigure({ invalidateAdapters: [id] })` as appropriate. During the unpublished Phase 2 milestone only, the built-in Markuplint adapter's explicit `settings.configFile` may be registered by its known schema; the language server must not generalize this into inspecting `validators[].settings.configFile` for every adapter. The validator-independent concrete-target SPI replaces that temporary built-in path before external adapters ship in Phase 3. Implement analyzer.md §2's `ReconfigureOptions.maxConcurrency` so a `workspace/didChangeConfiguration` can resize the live queue without recreating adapter sessions or discarding unrelated caches.
 3. Multi-root: per-folder analyzer/session/cache, longest-prefix routing, single-file restricted session (§9.1); explicit tasks and tests for `didChangeWorkspaceFolders` — create sessions for added folders, abort and dispose for removed ones.
 4. Untrusted workspace: built-in Markuplint with bundled safe defaults, forced `searchConfig: false`, one notice per workspace; no external adapters (§4.2). External-adapter loading itself is Phase 3.
+
 - Tests: a watch-event matrix — bridge settings file change → settings reload; built-in Markuplint explicit config change → its forced session recreation; a `configFilePatterns` match → forced recreation; each case followed by re-analysis of open documents. Completes language-server §13.1 items 4–5 and §13.2 items 8–9. The same behavior for arbitrary external adapters is the Phase 3 SPI gate.
 
 ### Track 5 — adapter-markuplint hardening
@@ -261,33 +266,33 @@ Goal: prove the SPI with a validator that is architecturally unlike Markuplint.
 
 ## 9. Risk register
 
-| Risk | Phase | Impact | Mitigation / trigger |
-| --- | --- | --- | --- |
-| TypeScript symbol/type resolution is the hardest part of core; the spike may show it is slow or brittle | 0–2 | High | S1 spike first; `TypeAnalysisContext` abstraction keeps ownership swappable; worker-thread ADR path already designed |
-| Markuplint has no reliable in-memory API for a virtual filename | 0 | High | S2 criterion 1; designed temp-file fallback confined to the adapter, valid only if it preserves the `virtualFilename` contract (§3.2) |
-| Sync segment exceeds the 100 ms budget on large SFCs | 0 | Medium | S4 measurement; async API already shields callers from a worker migration; re-measured at the Phase 1 and Phase 2 performance gates |
-| Variant explosion in real projects despite the warn-only threshold | 2 | Medium | Stats + warning ship in Phase 1; hard limit/sampling/constraint-solving ADR only if measurements demand it (monorepo.md §10.1) |
-| MLEngine not concurrency-safe → throughput bound by `maxConcurrentValidations: 1` | 1–2 | Medium | S2 criterion 5; HTML-hash dedup and session cache reduce call volume first |
-| Non-UTF-16-only LSP clients | 0 | Low | ADR-0004 fixes scope early; never claim unsupported encodings |
-| Contradictory Phase-1 variants confuse internal testers | 1 | Low | Internal milestone only; limitation documented in fixtures and PR descriptions, absent from any external spec |
-| Workspace-scale CLI runs (hundreds of files) stress wall time, peak memory, and buffered JSON size in ways single-SFC LSP profiling never measures | 2–3 | Medium | Phase 2 internal-runner measurements at workspace scale; file-level concurrency and NDJSON stay deferred decisions driven by that data (cli.md §10) |
+| Risk                                                                                                                                               | Phase | Impact | Mitigation / trigger                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TypeScript symbol/type resolution is the hardest part of core; the spike may show it is slow or brittle                                            | 0–2   | High   | S1 spike first; `TypeAnalysisContext` abstraction keeps ownership swappable; worker-thread ADR path already designed                                |
+| Markuplint has no reliable in-memory API for a virtual filename                                                                                    | 0     | High   | S2 criterion 1; designed temp-file fallback confined to the adapter, valid only if it preserves the `virtualFilename` contract (§3.2)               |
+| Sync segment exceeds the 100 ms budget on large SFCs                                                                                               | 0     | Medium | S4 measurement; async API already shields callers from a worker migration; re-measured at the Phase 1 and Phase 2 performance gates                 |
+| Variant explosion in real projects despite the warn-only threshold                                                                                 | 2     | Medium | Stats + warning ship in Phase 1; hard limit/sampling/constraint-solving ADR only if measurements demand it (monorepo.md §10.1)                      |
+| MLEngine not concurrency-safe → throughput bound by `maxConcurrentValidations: 1`                                                                  | 1–2   | Medium | S2 criterion 5; HTML-hash dedup and session cache reduce call volume first                                                                          |
+| Non-UTF-16-only LSP clients                                                                                                                        | 0     | Low    | ADR-0004 fixes scope early; never claim unsupported encodings                                                                                       |
+| Contradictory Phase-1 variants confuse internal testers                                                                                            | 1     | Low    | Internal milestone only; limitation documented in fixtures and PR descriptions, absent from any external spec                                       |
+| Workspace-scale CLI runs (hundreds of files) stress wall time, peak memory, and buffered JSON size in ways single-SFC LSP profiling never measures | 2–3   | Medium | Phase 2 internal-runner measurements at workspace scale; file-level concurrency and NDJSON stay deferred decisions driven by that data (cli.md §10) |
 
 ---
 
 ## 10. ADR backlog (consolidated from the design docs)
 
-| ADR | Topic | Decide in |
-| --- | --- | --- |
-| 0001 | Build/release tooling (Changesets) | Stage A |
-| 0002 | `TypeAnalysisContext` ownership (core-owned vs. injected project service) | Phase 0 (S1) |
-| 0003 | Markuplint API usage, version pin, config-override filename semantics | Phase 0 (S2) |
-| 0004 | Position-encoding support scope / client matrix | Phase 0 (S3) |
-| 0005 | Worker-thread migration for core (only if budget exceeded) | Phase 0 (S4) |
-| — | Adapter-settings runtime validation location; excludeFiles ignore semantics | Phase 1 |
-| — | `MappingEntry` transformation group ID; debug dump API; variant warning default; display cap; pull diagnostics; `getConfigFingerprint` SPI; config-parse-error grace period; the standalone analyzer-diagnostics cache layer in monorepo.md §10.2 (default: drop the row rather than implement it, unless measurements show remap/aggregation cost demands it); adapter-version vs. session-generation in the validation cache key | Phase 2 (after measurement) |
-| — | External-adapter specifier/PnP; sandboxing; client launcher packaging; trust granularity | Phase 3 |
-| — | CLI follow-ups: watch mode, SARIF/other output formats, NDJSON streaming, stdin input, persistent cross-run cache, file-level parallel analyze (cli.md §10) | After the initial release / after the Phase 2 workspace-scale measurements |
-| — | Wrapped-adapter contract sufficiency | Phase 4 |
+| ADR  | Topic                                                                                                                                                                                                                                                                                                                                                                                                                              | Decide in                                                                  |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 0001 | Build/release tooling (Changesets)                                                                                                                                                                                                                                                                                                                                                                                                 | Stage A                                                                    |
+| 0002 | `TypeAnalysisContext` ownership (core-owned vs. injected project service)                                                                                                                                                                                                                                                                                                                                                          | Phase 0 (S1)                                                               |
+| 0003 | Markuplint API usage, version pin, config-override filename semantics                                                                                                                                                                                                                                                                                                                                                              | Phase 0 (S2)                                                               |
+| 0004 | Position-encoding support scope / client matrix                                                                                                                                                                                                                                                                                                                                                                                    | Phase 0 (S3)                                                               |
+| 0005 | Worker-thread migration for core (only if budget exceeded)                                                                                                                                                                                                                                                                                                                                                                         | Phase 0 (S4)                                                               |
+| —    | Adapter-settings runtime validation location; excludeFiles ignore semantics                                                                                                                                                                                                                                                                                                                                                        | Phase 1                                                                    |
+| —    | `MappingEntry` transformation group ID; debug dump API; variant warning default; display cap; pull diagnostics; `getConfigFingerprint` SPI; config-parse-error grace period; the standalone analyzer-diagnostics cache layer in monorepo.md §10.2 (default: drop the row rather than implement it, unless measurements show remap/aggregation cost demands it); adapter-version vs. session-generation in the validation cache key | Phase 2 (after measurement)                                                |
+| —    | External-adapter specifier/PnP; sandboxing; client launcher packaging; trust granularity                                                                                                                                                                                                                                                                                                                                           | Phase 3                                                                    |
+| —    | CLI follow-ups: watch mode, SARIF/other output formats, NDJSON streaming, stdin input, persistent cross-run cache, file-level parallel analyze (cli.md §10)                                                                                                                                                                                                                                                                        | After the initial release / after the Phase 2 workspace-scale measurements |
+| —    | Wrapped-adapter contract sufficiency                                                                                                                                                                                                                                                                                                                                                                                               | Phase 4                                                                    |
 
 ---
 
@@ -297,68 +302,68 @@ Maps every numbered test in the design docs to the phase/step that implements it
 
 ### core.md §10
 
-| Tests | Lands in |
-| --- | --- |
-| 3, 8–15, 17 | Phase 1 Step 3 |
-| 4 | Phase 1 (literal union / nullish / general string) → Phase 2 Track 1 (unevaluable-expression fallback) |
-| 7 | Phase 1 (component/slot/`v-html` exclusion) → Phase 2 Track 1 (custom directives) |
-| 1–2, 5, 6, 16 | Phase 2 Track 1 |
+| Tests         | Lands in                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------ |
+| 3, 8–15, 17   | Phase 1 Step 3                                                                                         |
+| 4             | Phase 1 (literal union / nullish / general string) → Phase 2 Track 1 (unevaluable-expression fallback) |
+| 7             | Phase 1 (component/slot/`v-html` exclusion) → Phase 2 Track 1 (custom directives)                      |
+| 1–2, 5, 6, 16 | Phase 2 Track 1                                                                                        |
 
 ### analyzer.md §12
 
-| Tests | Lands in |
-| --- | --- |
-| 1–2, 4, 10–11, 15–16 | Phase 1 Step 5 |
-| 3 | Phase 1 (static/dynamic) → Phase 2 Track 2 (synthetic) |
-| 12 | Phase 1 (no new work / no leftover result after abort) → Phase 2 Track 2 (no leftover cache entry) |
-| 5–9, 13–14, 17 | Phase 2 Track 2 |
-| 18 (concrete config watch targets) | Phase 3 task 2 |
+| Tests                              | Lands in                                                                                           |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 1–2, 4, 10–11, 15–16               | Phase 1 Step 5                                                                                     |
+| 3                                  | Phase 1 (static/dynamic) → Phase 2 Track 2 (synthetic)                                             |
+| 12                                 | Phase 1 (no new work / no leftover result after abort) → Phase 2 Track 2 (no leftover cache entry) |
+| 5–9, 13–14, 17                     | Phase 2 Track 2                                                                                    |
+| 18 (concrete config watch targets) | Phase 3 task 2                                                                                     |
 
 ### language-server §13
 
-| Tests | Lands in |
-| --- | --- |
-| 13.1-1 | Phase 1 (UTF-16) → Phase 2 Track 3 (other encodings, if ADR-0004 requires them) |
-| 13.1-2 | Phase 1 Step 6 |
-| 13.2-1, 2, 3, 6; 13.3 E2E | Phase 1 Step 7 (the E2E's Phase-2-annotated assertions land in Phase 2) |
-| 13.1-3; 13.2-4, 5, 7, 10 | Phase 2 Track 3 |
-| 13.1-4, 5; 13.2-8, 9 | Phase 2 Track 4 |
-| 13.1-6 | Phase 3 |
-| 13.1-7 (candidate/concrete config watchers) | Phase 3 task 2 |
-| 13.2-11 (dynamic concrete-target registration and invalidation) | Phase 3 task 2 |
+| Tests                                                           | Lands in                                                                        |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 13.1-1                                                          | Phase 1 (UTF-16) → Phase 2 Track 3 (other encodings, if ADR-0004 requires them) |
+| 13.1-2                                                          | Phase 1 Step 6                                                                  |
+| 13.2-1, 2, 3, 6; 13.3 E2E                                       | Phase 1 Step 7 (the E2E's Phase-2-annotated assertions land in Phase 2)         |
+| 13.1-3; 13.2-4, 5, 7, 10                                        | Phase 2 Track 3                                                                 |
+| 13.1-4, 5; 13.2-8, 9                                            | Phase 2 Track 4                                                                 |
+| 13.1-6                                                          | Phase 3                                                                         |
+| 13.1-7 (candidate/concrete config watchers)                     | Phase 3 task 2                                                                  |
+| 13.2-11 (dynamic concrete-target registration and invalidation) | Phase 3 task 2                                                                  |
 
 ### adapter-markuplint §9.2
 
-| Tests | Lands in |
-| --- | --- |
-| 1, 3, 5–11, 14; dispose half of 12; nested-config fixture (two SFCs, different nearest configs) | Phase 1 Step 4 |
-| 2, 4; reconfigure half of 12; `excludeFiles` decision fixture | Phase 2 Track 5 |
-| 13 (version matrix) | Phase 3 |
-| 15 (concrete config watch targets) | Phase 3 task 2 |
+| Tests                                                                                           | Lands in        |
+| ----------------------------------------------------------------------------------------------- | --------------- |
+| 1, 3, 5–11, 14; dispose half of 12; nested-config fixture (two SFCs, different nearest configs) | Phase 1 Step 4  |
+| 2, 4; reconfigure half of 12; `excludeFiles` decision fixture                                   | Phase 2 Track 5 |
+| 13 (version matrix)                                                                             | Phase 3         |
+| 15 (concrete config watch targets)                                                              | Phase 3 task 2  |
 
 ### adapter-testkit §3 / §6
 
-| Cases | Lands in |
-| --- | --- |
+| Cases                                                             | Lands in       |
+| ----------------------------------------------------------------- | -------------- |
 | §3.1–3.7 (minus concurrency depth), §3.9; one seed broken adapter | Phase 1 Step 2 |
-| §3.8, §3.10; full §6 broken-adapter suite; §5 sample adapter | Phase 3 |
+| §3.8, §3.10; full §6 broken-adapter suite; §5 sample adapter      | Phase 3        |
 
 ### settings.md §8
 
-| Tests | Lands in |
-| --- | --- |
-| 1–9 | Phase 2 Track 4 (the package is created with the language-server settings work; the schema-export test completes with Phase 3 release engineering) |
+| Tests | Lands in                                                                                                                                           |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1–9   | Phase 2 Track 4 (the package is created with the language-server settings work; the schema-export test completes with Phase 3 release engineering) |
 
 ### cli.md §9
 
-| Tests | Lands in |
-| --- | --- |
-| 1–14 | Phase 3 task 5 (the Phase 2 internal runner is unpublished and carries no public test surface) |
+| Tests | Lands in                                                                                       |
+| ----- | ---------------------------------------------------------------------------------------------- |
+| 1–14  | Phase 3 task 5 (the Phase 2 internal runner is unpublished and carries no public test surface) |
 
 ### adapter-loader.md §6
 
-| Tests | Lands in |
-| --- | --- |
-| 1–8 | Phase 3 task 3 (item 8's shared host contract fixture also runs inside language-server §13.1 and cli.md §9) |
+| Tests | Lands in                                                                                                    |
+| ----- | ----------------------------------------------------------------------------------------------------------- |
+| 1–8   | Phase 3 task 3 (item 8's shared host contract fixture also runs inside language-server §13.1 and cli.md §9) |
 
 monorepo.md §12.2's E2E items already carry Phase 1 / Phase 2 / Phase 3 annotations in the design doc itself.

@@ -1,0 +1,44 @@
+{
+  "markuplintVersion": "4.18.3",
+  "cosmiconfigModuleName": "markuplint",
+  "searchStrategy": "project",
+  "searchPlaces": [
+    "package.json",
+    ".markuplintrc",
+    ".markuplintrc.json",
+    ".markuplintrc.yaml",
+    ".markuplintrc.yml",
+    ".markuplintrc.js",
+    ".markuplintrc.ts",
+    ".markuplintrc.cjs",
+    ".markuplintrc.mjs",
+    ".config/markuplintrc",
+    ".config/markuplintrc.json",
+    ".config/markuplintrc.yaml",
+    ".config/markuplintrc.yml",
+    ".config/markuplintrc.js",
+    ".config/markuplintrc.ts",
+    ".config/markuplintrc.cjs",
+    ".config/markuplintrc.mjs",
+    "markuplint.config.js",
+    "markuplint.config.ts",
+    "markuplint.config.cjs",
+    "markuplint.config.mjs"
+  ],
+  "documentedConfigFilePatterns": [
+    "**/.markuplintrc",
+    "**/.markuplintrc.*",
+    "**/markuplint.config.*",
+    "**/package.json"
+  ],
+  "unmatchedByDocumentedPatterns": [
+    ".config/markuplintrc",
+    ".config/markuplintrc.json",
+    ".config/markuplintrc.yaml",
+    ".config/markuplintrc.yml",
+    ".config/markuplintrc.js",
+    ".config/markuplintrc.ts",
+    ".config/markuplintrc.cjs",
+    ".config/markuplintrc.mjs"
+  ]
+}

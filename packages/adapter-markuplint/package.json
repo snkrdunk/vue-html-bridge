@@ -23,7 +23,11 @@
   "dependencies": {
     "@vue-html-bridge/validator-api": "workspace:*"
   },
+  "peerDependencies": {
+    "markuplint": "^4.18.3"
+  },
   "devDependencies": {
-    "@types/node": "26.2.0"
+    "@types/node": "26.2.0",
+    "markuplint": "4.18.3"
   }
 }

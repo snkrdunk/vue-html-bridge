@@ -40,7 +40,7 @@ This package is the core of the bridge, as its name suggests. However, it does n
 
 ## 2. Public API
 
-The public API is async. The core's own processing (compiler, TypeScript) is CPU-bound synchronous work, but running it as a synchronous API inside the single-threaded LSP process would block the event loop — during that time, the process could not receive `didChange` notifications or observe an `AbortSignal` firing. To avoid this, we place yield points at phase and environment boundaries that return control to the event loop, and check the signal at each one. The delay before cancellation takes effect is bounded by the longest synchronous segment (for example, resolving the type of a single expression). If measurements show this is not good enough, the internal implementation can move to a worker thread without changing the public API (language-server.md §14).
+The public API is async. The core's own processing (compiler, TypeScript) is CPU-bound synchronous work, but running it as a synchronous API inside the single-threaded LSP process would block the event loop — during that time, the process could not receive `didChange` notifications or observe an `AbortSignal` firing. To avoid this, we place yield points at phase and environment boundaries that return control to the event loop, and check the signal at each one. The delay before cancellation takes effect is bounded by the longest synchronous segment (for example, resolving the type of a single expression). The Phase 0 spike (S4) measured this against representative fixtures and found the 100ms budget met by 2–3 orders of magnitude (ADR-0005); the internal implementation stays synchronous, in-process. This is re-measured, not assumed, at the Phase 1 and Phase 2 performance gates (implementation-plan.md §4, §5) — the public API stays async specifically so a later move to a worker thread, if ever needed, would not change it.
 
 ```ts
 export interface GenerateRequest {
@@ -63,7 +63,26 @@ export function generateVariants(
 ): Promise<GenerateResult>;
 ```
 
-`TypeAnalysisContext` abstracts ownership of the TypeScript program/project service. Whether core owns the concrete lifecycle of the project service, or the caller injects it, will be decided during the Phase 0 spike. The public API is designed to work either way.
+`TypeAnalysisContext` is **caller-injected** (ADR-0002). It is deliberately not a `ts.LanguageService` / `ts.server.ProjectService` — the Phase 0 spike found that the type-resolution cache that actually matters (`@vue/compiler-sfc`'s own, reused for the outer `defineProps<T>()` shape) is process-global state regardless of who "owns" a context object, and that it does no content comparison — it trusts a filename until explicitly told otherwise. Only the caller (language server / analyzer / CLI) has a channel to learn that a dependency file changed (core has no file-watching capability — §1, monorepo.md §3), so only the caller can correctly drive invalidation. The shape is:
+
+```ts
+export interface TypeAnalysisFs {
+  fileExists(filename: string): boolean;
+  readFile(filename: string): string | undefined;
+}
+
+export interface TypeAnalysisContext {
+  readonly fs: TypeAnalysisFs;
+  readonly epoch: number;
+  /** Bumps the epoch and evicts any resolver-owned cache entries for these files. */
+  invalidate(filenames: readonly string[]): void;
+}
+```
+
+- **Lifecycle**: constructed once per workspace by the caller (one per workspace folder in the language server; one per run in the CLI) and passed on every `generateVariants` call via `GenerateRequest.typeContext`. core never retains it between calls.
+- **Unsaved buffers**: the SFC's own script content never goes through `fs` — it is always whatever `GenerateRequest.source` the caller passed for that call, so unsaved-buffer support for the file being analyzed is free by construction. A *dependency* file reached via a type-only import is read through `ctx.fs.readFile`, letting the caller serve an open editor buffer's content ahead of disk content for that file too.
+- **Project epoch**: `epoch` is a monotonic counter, local to one `TypeAnalysisContext` instance, that bumps exactly when `invalidate(filenames)` is called. The caller must call it whenever an open document's buffer changes for a file that is a type dependency of some previously analyzed SFC, a file-watcher event fires for a non-open type-dependency file, or the workspace's `tsconfig.json` changes (conservatively: bump for every previously resolved file). `epoch` is the "project epoch" referenced by core's own result cache key (monorepo.md §10.2).
+- **What core reuses vs. builds**: core reuses `@vue/compiler-sfc`'s exported (if `@private`-marked) `resolveTypeElements`/`registerTS`/`invalidateTypeCache` for resolving the *outer* `defineProps<T>()` object shape, including cross-file references, when `ctx.fs` is wired through as that function's own `fs` option. core adds its own narrow resolver on top for expanding each property's *value* type into a §4.4 `Domain` (boolean, literal union via a local alias or same-directory type-only import, array, or `unsupported`) — `resolveTypeElements` alone hands back value types unexpanded, and Vue's own `inferRuntimeType` collapses literal unions to a coarse runtime tag, losing the values. core does not depend on `@vue/language-core` (the heavier package `vue-tsc`/Volar use for full template type-checking) — full generic/conditional-type inference is out of scope, matching this section's "general string/number" and "unevaluable expression" fallback rows.
 
 Type analysis only reads the tsconfig and type definition files as data; it does not load TypeScript/Vue language service plugins or custom transformers. This holds regardless of the workspace trust state — type analysis itself never involves running arbitrary code (language-server.md §10).
 
@@ -257,7 +276,22 @@ We do not evaluate function calls, constructor calls, assignment/update expressi
 
 Unevaluable-expression diagnostics are not added redundantly per environment by the renderer. When the Decision Model is built, we record one entry per expression, keyed by "diagnostic code + source range of the template expression". Only the rendered result of the local fallback varies per environment.
 
-The complete table mapping expression grammar to evaluators will be fixed as a Phase 0 spike fixture, and this section will be updated accordingly. Unsupported expressions receive no treatment beyond the fallback rules above.
+The Phase 0 spike (S1) fixed the complete grammar → evaluator mapping as a runnable fixture (`spikes/s1-decision-model/expression-evaluator.ts`, exercised by 28 passing cases in `expression-evaluation-table.spike.test.ts` against real parsed expressions, including some pulled directly from this repo's example fixtures):
+
+| Grammar shape | Evaluator behavior |
+| --- | --- |
+| String/numeric/boolean/`null` literal | `known(value)` |
+| `undefined` identifier | `known(undefined)` |
+| Identifier / non-computed property access resolving to a decision | Looks up the decision's assigned value in the current `VariantEnvironment`; `unknown` if the access path isn't a registered decision |
+| Parentheses | Transparent — evaluates the inner expression (no distinct AST handling needed; a parser may reparse a wrapped source substring with an offset that must be corrected back against the original range, see core.md §7's mapping fixture) |
+| `!x` | `known(!v)` if `x` evaluates to `known(v)`, else propagates `x`'s `unknown` |
+| `===` / `!==` / `==` / `!=` | Supported **only** when at least one operand is a literal or `null` (comparing two decisions to each other is `unknown` — not supported); evaluates both sides and applies the matching JS equality semantics |
+| `&&` / `||` / `??` | Standard short-circuit semantics: `&&`/`||` on the left operand's truthiness, `??` on nullishness; the right side is only evaluated when short-circuiting doesn't apply; `unknown` on the left propagates immediately |
+| Ternary | Evaluates `test`; if `known`, evaluates the matching branch; if `unknown`, the whole expression is `unknown` (an `ExpressionPlan` links the condition decision to each branch's value — see §4.4) |
+| Optional chaining (`?.`) on a supported expression | Resolved the same as non-optional property access once reduced to an access path |
+| Function/constructor calls, assignment/update, `await`, unsupported operators (e.g. `>`, `<`) | Always `unknown` — never evaluated, even when the call looks side-effect-free |
+
+**Predicate-decision eligibility** (`isSideEffectFree`) walks the same node kinds the evaluator supports (literals, identifiers, non-computed property access, `!`, binary/logical/ternary composed from those) — a `CallExpression` anywhere in the tree makes the whole expression ineligible, even nested inside an otherwise-supported shape (e.g. `checkPermission() > 0` is never promoted). Predicate correlation keys are the expression's own AST with source positions stripped (so two occurrences of the identical expression share a key), and `!x` normalizes to the same key as `x` with a negated flag — confirmed distinct from a different comparison on the same identifier (`count > 0` and `count > 1` do **not** share a key).
 
 ## 5. Vue AST transformation policy
 

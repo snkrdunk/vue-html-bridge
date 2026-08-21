@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/markuplint/markuplint/main/config.schema.json",
+  "extends": ["markuplint:recommended-static-html"],
+  "parser": {
+    "\\.vue$": "@markuplint/vue-parser"
+  },
+  "rules": {
+    "id-duplication": true
+  },
+  "nodeRules": [
+    {
+      "selector": "img",
+      "rules": {
+        "required-attr": ["alt"]
+      }
+    }
+  ],
+  "overrides": {
+    "**/*.__vue_html_bridge__/**/*.html": {
+      "rules": {
+        "doctype": false
+      }
+    },
+    "**/*.vue": {
+      "rules": {
+        "doctype": true
+      }
+    }
+  },
+  "excludeFiles": ["**/ignored/**"]
+}
