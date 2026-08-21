@@ -27,9 +27,13 @@
     "@vue-html-bridge/analyzer": "workspace:*",
     "@vue-html-bridge/adapter-markuplint": "workspace:*",
     "@vue-html-bridge/validator-api": "workspace:*",
-    "@vue-html-bridge/settings": "workspace:*"
+    "@vue-html-bridge/settings": "workspace:*",
+    "vscode-languageserver": "10.1.0",
+    "vscode-languageserver-textdocument": "1.0.13",
+    "vscode-uri": "3.1.0"
   },
   "devDependencies": {
-    "@types/node": "26.2.0"
+    "@types/node": "26.2.0",
+    "vitest": "4.1.11"
   }
 }
