@@ -1,0 +1,26 @@
+{
+  "name": "vue-html-bridge",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Parses a Vue 3 SFC template and generates static HTML variants with source mapping.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@vue-html-bridge/analyzer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runs core and validator adapters, reverse-maps diagnostics, and aggregates results.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "vue-html-bridge": "workspace:*",
+    "@vue-html-bridge/validator-api": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0"
+  }
+}

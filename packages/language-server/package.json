@@ -1,0 +1,35 @@
+{
+  "name": "@vue-html-bridge/language-server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "LSP server that publishes vue-html-bridge diagnostics and hover.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "vue-html-bridge-language-server": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/bin.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vue-html-bridge/analyzer": "workspace:*",
+    "@vue-html-bridge/adapter-markuplint": "workspace:*",
+    "@vue-html-bridge/validator-api": "workspace:*",
+    "@vue-html-bridge/settings": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0"
+  }
+}

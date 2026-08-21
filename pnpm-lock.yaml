@@ -36,6 +36,95 @@ importers:
         specifier: 4.1.11
         version: 4.1.11(@types/node@26.2.0)(vite@8.2.1(@types/node@26.2.0)(yaml@2.9.0))
 
+  packages/adapter-markuplint:
+    dependencies:
+      '@vue-html-bridge/validator-api':
+        specifier: workspace:*
+        version: link:../validator-api
+    devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
+
+  packages/adapter-testkit:
+    dependencies:
+      '@vue-html-bridge/validator-api':
+        specifier: workspace:*
+        version: link:../validator-api
+    devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
+
+  packages/analyzer:
+    dependencies:
+      '@vue-html-bridge/validator-api':
+        specifier: workspace:*
+        version: link:../validator-api
+      vue-html-bridge:
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
+
+  packages/cli:
+    dependencies:
+      '@vue-html-bridge/adapter-markuplint':
+        specifier: workspace:*
+        version: link:../adapter-markuplint
+      '@vue-html-bridge/analyzer':
+        specifier: workspace:*
+        version: link:../analyzer
+      '@vue-html-bridge/settings':
+        specifier: workspace:*
+        version: link:../settings
+      '@vue-html-bridge/validator-api':
+        specifier: workspace:*
+        version: link:../validator-api
+    devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
+
+  packages/core:
+    devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
+
+  packages/language-server:
+    dependencies:
+      '@vue-html-bridge/adapter-markuplint':
+        specifier: workspace:*
+        version: link:../adapter-markuplint
+      '@vue-html-bridge/analyzer':
+        specifier: workspace:*
+        version: link:../analyzer
+      '@vue-html-bridge/settings':
+        specifier: workspace:*
+        version: link:../settings
+      '@vue-html-bridge/validator-api':
+        specifier: workspace:*
+        version: link:../validator-api
+    devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
+
+  packages/settings:
+    devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
+
+  packages/validator-api:
+    devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
+
 packages:
 
   '@eslint-community/eslint-utils@4.10.1':

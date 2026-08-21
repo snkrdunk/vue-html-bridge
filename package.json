@@ -8,11 +8,13 @@
     "node": "^20.0.0 || ^22.0.0 || >=24.0.0"
   },
   "scripts": {
+    "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check:deps": "node ./scripts/check-dependency-graph.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
