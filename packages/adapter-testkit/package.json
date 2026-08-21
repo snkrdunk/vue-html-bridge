@@ -9,6 +9,14 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./fake": {
+      "types": "./dist/fake.d.ts",
+      "import": "./dist/fake.js"
+    },
+    "./vitest": {
+      "types": "./dist/vitest.d.ts",
+      "import": "./dist/vitest.js"
+    },
     "./package.json": "./package.json"
   },
   "types": "./dist/index.d.ts",
@@ -24,6 +32,7 @@
     "@vue-html-bridge/validator-api": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "26.2.0"
+    "@types/node": "26.2.0",
+    "vitest": "4.1.11"
   }
 }
