@@ -3,7 +3,15 @@
 // - Each adapter's own maxConcurrentValidations is also enforced.
 // - No new work starts once the signal is aborted.
 // - A rejection from one item is isolated and does not cancel the others.
-// - A result from a non-cancellable adapter that finishes after abort is discarded.
+// - Once the (single, request-wide) signal is aborted, every task's outcome
+//   is discarded, not just non-cancellable adapters' — a cancellable
+//   adapter's own validate() call is expected to reject *because of* the
+//   same abort (monorepo.md §11: cancellation is never a diagnostic), so
+//   treating that rejection as a real execution-error would be wrong. What
+//   `supportsCancellation` actually changes is that a non-cancellable
+//   adapter's call may keep running and complete normally well after the
+//   signal fires — Promise.all still has to wait it out (a real in-flight
+//   call can't be un-awaited), but its result is just as discarded.
 
 class Semaphore {
   private available: number;
@@ -33,7 +41,6 @@ class Semaphore {
 export interface BoundedTask<TItem, TResult> {
   item: TItem;
   adapterId: string;
-  supportsCancellation: boolean;
   run(signal: AbortSignal): Promise<TResult>;
 }
 
@@ -72,10 +79,10 @@ export async function runBounded<TItem, TResult>(
           try {
             if (signal.aborted) return undefined;
             const result = await task.run(signal);
-            if (signal.aborted && !task.supportsCancellation) return undefined;
+            if (signal.aborted) return undefined;
             return { item: task.item, adapterId: task.adapterId, result };
           } catch (error) {
-            if (signal.aborted && !task.supportsCancellation) return undefined;
+            if (signal.aborted) return undefined;
             return { item: task.item, adapterId: task.adapterId, error };
           } finally {
             releaseAdapter();

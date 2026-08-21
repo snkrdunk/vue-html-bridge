@@ -25,6 +25,16 @@ export interface ServerLogger {
 export interface StartLanguageServerOptions {
   connection: Connection;
   logger?: ServerLogger;
+  /**
+   * Overrides how the (single, hardcoded-Markuplint, Phase 1) workspace
+   * analyzer is built for a given workspace root. Exposed for tests that
+   * need a specific adapter/session outcome (e.g. a forced Markuplint
+   * session failure) without real filesystem setup; hosts normally omit
+   * this and get createDefaultWorkspaceAnalyzer.
+   */
+  createWorkspaceAnalyzer?: (
+    workspaceRoot: string,
+  ) => Promise<WorkspaceAnalyzer>;
 }
 
 export interface LanguageServerHandle {
@@ -42,6 +52,8 @@ export function startLanguageServer(
 ): LanguageServerHandle {
   const { connection } = options;
   const logger = options.logger ?? nullLogger;
+  const buildWorkspaceAnalyzer =
+    options.createWorkspaceAnalyzer ?? createDefaultWorkspaceAnalyzer;
   const documents = new TextDocuments(TextDocument);
   const documentStates = new Map<string, DocumentState>();
   let workspaceAnalyzerPromise: Promise<WorkspaceAnalyzer> | undefined;
@@ -50,7 +62,7 @@ export function startLanguageServer(
     const workspaceRoot = resolveWorkspaceRoot(params);
     // createWorkspaceAnalyzer is async; requests that need it (didOpen/didChange
     // handlers below) await this same promise, so no request races the setup.
-    workspaceAnalyzerPromise = createDefaultWorkspaceAnalyzer(workspaceRoot);
+    workspaceAnalyzerPromise = buildWorkspaceAnalyzer(workspaceRoot);
 
     const capabilities: ServerCapabilities = {
       // ADR-0004: Phase 1 supports UTF-16 only, regardless of what the
@@ -63,6 +75,16 @@ export function startLanguageServer(
 
   documents.onDidChangeContent((event) => {
     void analyzeAndPublish(event.document);
+  });
+
+  // Full didClose behavior (discarding hover/position caches once they
+  // exist) is Phase 2 Track 3; clearing the client's Problems view and
+  // aborting in-flight work for the closed URI is cheap enough to do now.
+  documents.onDidClose((event) => {
+    const uri = event.document.uri;
+    documentStates.get(uri)?.abortController?.abort();
+    documentStates.delete(uri);
+    void connection.sendDiagnostics({ uri, diagnostics: [] });
   });
 
   async function analyzeAndPublish(document: TextDocument): Promise<void> {

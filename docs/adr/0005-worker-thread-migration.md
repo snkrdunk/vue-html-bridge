@@ -72,6 +72,33 @@ could change the answer:
    conclusion against the real (non-spike) pipeline before it can be relied
    upon beyond Phase 0.
 
+## Phase 1 re-measurement (2026-08-21)
+
+Implementation-plan.md §4's Phase 1 exit criteria required re-measuring
+against the real (non-spike) pipeline. Measured on the same three
+`examples/playground/*.vue` fixtures, now through the real, shipped
+`vue-html-bridge` and `@vue-html-bridge/analyzer`/`@vue-html-bridge/adapter-markuplint`
+implementations (Phase 1 Steps 3-5), not spike code:
+
+- **Core's own synchronous segment** (`generateVariants` alone, 10-run
+  min/p50/max): `item-list.vue` 0.28/0.43/0.72ms; `logged-in-aria-controls.vue`
+  0.19/0.22/0.27ms; `status-literal-union.vue` 0.33/0.40/0.46ms — all still
+  2-3 orders of magnitude under the 100ms budget, confirming Phase 0's spike
+  numbers on the real implementation. Committed as a real regression test:
+  `packages/core/src/performance.test.ts`.
+- **Full end-to-end latency** (`analyzer.analyze()`, core + real Markuplint
+  validation, 10-run min/p50/max): `item-list.vue` 16.7/17.6/21.0ms;
+  `logged-in-aria-controls.vue` 10.6/11.2/11.7ms; `status-literal-union.vue`
+  20.4/20.8/22.8ms. Comfortably under budget with ~5-10x headroom; the bulk
+  of this time is Markuplint's own config resolution and rule execution
+  inside the analyzer's bounded validation queue (a separate, already-
+  abort-checked stage — analyzer.md §5.3), not part of core's uninterrupted
+  synchronous segment that the 100ms figure actually bounds.
+
+Conclusion unchanged: no worker-thread migration needed. Re-measured again,
+on the full Phase 2 feature set (global Decision Model, aggregation), at the
+Phase 2 performance gate (implementation-plan.md §5).
+
 ## Alternatives considered
 
 - **Migrate to a worker thread now, preemptively**: rejected — no measured

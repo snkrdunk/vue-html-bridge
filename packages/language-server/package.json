@@ -34,6 +34,8 @@
   },
   "devDependencies": {
     "@types/node": "26.2.0",
-    "vitest": "4.1.11"
+    "@vue-html-bridge/adapter-testkit": "workspace:*",
+    "vitest": "4.1.11",
+    "vscode-jsonrpc": "9.0.1"
   }
 }

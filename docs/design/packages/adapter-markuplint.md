@@ -300,7 +300,7 @@ We save both the raw Markuplint violation and the normalized result as fixtures.
 Each item notes where the decision will be made.
 
 - ~~The best public API for passing a source string plus virtual filename to `MLEngine`~~ — resolved by the Phase 0 spike: `MLEngine.fromCode(sourceCode, { name, configFile, noSearchConfig, ... })`, `name` as an absolute path (§3, ADR-0003).
-- Whether a generated file excluded by config's `excludeFiles` should be a silent ignore or an info diagnostic (decided during Phase 1 implementation)
+- ~~Whether a generated file excluded by config's `excludeFiles` should be a silent ignore or an info diagnostic~~ — decided during Phase 1 implementation: **silent ignore**, matching §6.3's design as written — `exec()` returning `null` with no other reason is treated as the documented exclusion case (no diagnostics, no failures, `metadata: { excluded: true }`); an info diagnostic would need per-user config knowledge the adapter shouldn't assume is unwanted noise. Implemented in `src/engine.ts`'s null-result handling; verified by the `"excludeFiles: an excluded source produces no diagnostics"` test (§9.2).
 - Capability update once Markuplint offers native cancellation (once upstream supports it)
 
 ## 11. References

@@ -119,7 +119,6 @@ export async function createWorkspaceAnalyzer(
         return {
           item,
           adapterId: item.adapterId,
-          supportsCancellation: entry.adapter.capabilities.supportsCancellation,
           run: (signal) =>
             entry.session.validate(
               {

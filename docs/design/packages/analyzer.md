@@ -434,6 +434,13 @@ placed at the template fallback range. The same adapter/session-level failure is
 
 The same handling applies when `createSession` rejects with an `AdapterSessionFailure` (validator-api §3.1). Only that adapter is disabled, its failure is turned into a source diagnostic, and analysis by core and the other adapters continues. If `failure.recoverable` is true, session creation is retried on the next `reconfigure`. A rejection without this shape is treated as a programming error and isolated as an `execution-error`.
 
+The analyzer's own settings-shape check (ADR-0007: a shallow JSON-safety
+check on `ConfiguredAdapter.settings`, run before `createSession`) surfaces
+through this exact same path — a failing check produces a session-level
+`configuration-error` `AdapterSessionFailure` for that one adapter, not a
+separate failure category. Phase 2 Track 4 implements the check itself; the
+handling it plugs into already exists.
+
 Even if the Markuplint adapter fails, the core diagnostics and diagnostics from other adapters are still included in the result.
 
 ## 10. Cache
@@ -522,7 +529,7 @@ Each item notes where the decision will be made.
 
 - Whether to include a transformation group ID as a public field on core's `MappingEntry` from v1 (ADR when aggregation is implemented in Phase 2)
 - Whether to add an SPI extension that lets a session expose a config fingerprint (e.g. `getConfigFingerprint(sourceFilename)`), to allow sharing the validation cache across files (ADR after measurement in Phase 2)
-- Whether runtime schema validation of adapter settings is done by the language server or by the analyzer (decided during Phase 1 implementation)
+- ~~Whether runtime schema validation of adapter settings is done by the language server or by the analyzer~~ — decided during Phase 1 (ADR-0007): the **analyzer**, as a shallow JSON-safety check at the point it calls `createSession`, covering both hosts from one implementation. Implementation lands in Phase 2 Track 4, before Phase 3 exposes external adapters.
 - For a validator like Nu HTML Checker that requires a full document, the wrapper is added inside the adapter, and it must handle both excluding wrapper-only diagnostics and correcting ranges by itself. Whether this contract is sufficient will be verified by prototyping a second adapter. (Phase 4)
 - ~~Whether to provide an opt-in debug API (disabled by default, with an explicit privacy note since it includes source/HTML) that dumps variants, mapping, and generated HTML~~ — scoped out through Phase 3 (product decision, 2026-08-21); revisit after real usage if debugging needs justify it. Its privacy-review requirement stands whenever this is revisited.
 
