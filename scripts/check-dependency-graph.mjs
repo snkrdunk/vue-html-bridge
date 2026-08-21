@@ -20,7 +20,10 @@ const EXPECTED_INTERNAL_DEPS = {
     "vue-html-bridge",
     "@vue-html-bridge/validator-api",
   ],
-  "@vue-html-bridge/adapter-markuplint": ["@vue-html-bridge/validator-api"],
+  "@vue-html-bridge/adapter-markuplint": [
+    "@vue-html-bridge/adapter-testkit",
+    "@vue-html-bridge/validator-api",
+  ],
   "@vue-html-bridge/adapter-testkit": ["@vue-html-bridge/validator-api"],
   "@vue-html-bridge/language-server": [
     "@vue-html-bridge/analyzer",

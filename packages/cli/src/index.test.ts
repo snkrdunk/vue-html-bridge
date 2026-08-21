@@ -9,7 +9,7 @@ describe("@vue-html-bridge/cli package skeleton", () => {
   it("resolves its workspace dependencies through real ESM imports", () => {
     expect(dependsOn).toEqual([
       "@vue-html-bridge/analyzer",
-      "@vue-html-bridge/adapter-markuplint",
+      "markuplint",
       "@vue-html-bridge/validator-api",
       "@vue-html-bridge/settings",
     ]);
