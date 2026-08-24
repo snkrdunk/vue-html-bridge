@@ -170,6 +170,12 @@ importers:
       '@types/node':
         specifier: 26.2.0
         version: 26.2.0
+      vitest:
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@26.2.0)(vite@8.2.1(@types/node@26.2.0)(yaml@2.9.0))
+      vue-html-bridge:
+        specifier: workspace:*
+        version: link:../core
 
   packages/validator-api:
     devDependencies:

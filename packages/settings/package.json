@@ -9,18 +9,23 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./schema.json": "./schema.json",
     "./package.json": "./package.json"
   },
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "schema.json"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate-schema": "node scripts/generate-schema.mjs"
   },
   "devDependencies": {
-    "@types/node": "26.2.0"
+    "@types/node": "26.2.0",
+    "vitest": "4.1.11",
+    "vue-html-bridge": "workspace:*"
   }
 }

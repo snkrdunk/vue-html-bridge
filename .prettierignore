@@ -12,3 +12,9 @@ node_modules/
 # Normative fixture content (e.g. language-server.md §13.3) must stay
 # byte-identical to the design doc, not reflowed by a formatter.
 examples/playground/*.vue
+
+# Generated golden fixture (settings.md §7-8): byte-identical to
+# generateSettingsJsonSchema()'s own JSON.stringify output, pinned by a
+# golden test (packages/settings/src/json-schema.test.ts). Reformatting it
+# here would fight that test instead of the other way around.
+packages/settings/schema.json
