@@ -1,6 +1,6 @@
 # `@vue-html-bridge/cli` Design
 
-Status: Proposed  
+Status: Implemented  
 Package directory: `packages/cli`
 
 ## 1. Role

@@ -1,6 +1,6 @@
 # `@vue-html-bridge/validator-api` Design
 
-Status: Proposed
+Status: Implemented
 Package directory: `packages/validator-api`
 
 ## 1. Role

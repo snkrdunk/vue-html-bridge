@@ -1,6 +1,6 @@
 # `@vue-html-bridge/language-server` Design
 
-Status: Proposed  
+Status: Implemented  
 Package directory: `packages/language-server`
 
 ## 1. Role

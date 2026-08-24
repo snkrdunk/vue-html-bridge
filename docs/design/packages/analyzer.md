@@ -1,6 +1,6 @@
 # `@vue-html-bridge/analyzer` Design
 
-Status: Proposed
+Status: Implemented
 Package directory: `packages/analyzer`
 
 ## 1. Role

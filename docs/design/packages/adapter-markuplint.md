@@ -1,6 +1,6 @@
 # `@vue-html-bridge/adapter-markuplint` Design
 
-Status: Proposed  
+Status: Implemented  
 Package directory: `packages/adapter-markuplint`
 
 ## 1. Role

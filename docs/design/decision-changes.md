@@ -1,6 +1,6 @@
 # List of Changes from the Old Design
 
-Status: Proposed
+Status: Final
 Last updated: 2026-08-20
 
 This document records which decisions from `Design Document_ vue-html-bridge.md` (at the repository root) were changed on purpose in this directory's design, and why.

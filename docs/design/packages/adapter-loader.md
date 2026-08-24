@@ -1,6 +1,6 @@
 # `@vue-html-bridge/adapter-loader` Design
 
-Status: Proposed  
+Status: Implemented  
 Package directory: `packages/adapter-loader`
 
 ## 1. Role

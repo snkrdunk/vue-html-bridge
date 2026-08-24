@@ -1,6 +1,6 @@
 # `@vue-html-bridge/adapter-testkit` design
 
-Status: Proposed  
+Status: Implemented  
 Package directory: `packages/adapter-testkit`
 
 ## 1. Role

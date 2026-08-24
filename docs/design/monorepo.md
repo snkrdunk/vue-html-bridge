@@ -1,6 +1,6 @@
 # vue-html-bridge Monorepo Overall Design
 
-Status: Proposed  
+Status: Implemented  
 Revision: 3
 Last updated: 2026-08-20
 

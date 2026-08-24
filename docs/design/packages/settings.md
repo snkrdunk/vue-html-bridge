@@ -1,6 +1,6 @@
 # `@vue-html-bridge/settings` Design
 
-Status: Proposed  
+Status: Implemented  
 Package directory: `packages/settings`
 
 ## 1. Role

@@ -1,6 +1,6 @@
 # `vue-html-bridge` (core) Design
 
-Status: Proposed  
+Status: Implemented  
 Package directory: `packages/core`  
 Package name: `vue-html-bridge`
 
