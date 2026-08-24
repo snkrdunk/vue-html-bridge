@@ -163,6 +163,157 @@ function harness(
   return h;
 }
 
+describe("vertical-slice E2E: monorepo.md §12.2 Phase 2 items", () => {
+  it("correlation: a v-if and a dynamic attribute referencing the same expression never contradict each other", async () => {
+    const { client, waitForNotification } = harness();
+    await initialize(client);
+    const uri = "file:///workspace/Correlate.vue";
+    // If loggedIn and !loggedIn were independently expanded (no correlation),
+    // one of the 4 candidate variants would have BOTH elements present at
+    // once (an internally contradictory state), colliding on id="dup" — a
+    // real Markuplint id-duplication violation that can never actually
+    // happen at runtime, since the two conditions are mutually exclusive by
+    // construction.
+    await didOpen(
+      client,
+      uri,
+      `<script setup lang="ts">
+defineProps<{ loggedIn: boolean }>();
+</script>
+<template>
+  <div v-if="loggedIn" id="dup"></div>
+  <div v-if="!loggedIn" id="dup"></div>
+</template>`,
+    );
+    const published = await waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) => params.uri === uri,
+    );
+    expect(
+      published.diagnostics.some(
+        (d: { code?: string }) => d.code === "id-duplication",
+      ),
+    ).toBe(false);
+  });
+
+  it("v-for cardinality correlates with a matching .length condition on the same collection", async () => {
+    const { client, waitForNotification } = harness();
+    await initialize(client);
+    const uri = "file:///workspace/CardinalityLength.vue";
+    // If cardinality and the two complementary .length checks were
+    // independently expanded, some candidate variant would show both the
+    // "empty" and "non-empty" markers at once (both true.length === 0 and
+    // .length > 0 can never both hold), colliding on id="marker".
+    await didOpen(
+      client,
+      uri,
+      `<script setup lang="ts">
+defineProps<{ items: string[] }>();
+</script>
+<template>
+  <ul><li v-for="item in items"></li></ul>
+  <p v-if="items.length === 0" id="marker"></p>
+  <span v-if="items.length > 0" id="marker"></span>
+</template>`,
+    );
+    const published = await waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) => params.uri === uri,
+    );
+    expect(
+      published.diagnostics.some(
+        (d: { code?: string }) => d.code === "id-duplication",
+      ),
+    ).toBe(false);
+  });
+
+  it("aggregation: the same source-level problem across multiple variants is published as a single diagnostic", async () => {
+    const { client, waitForNotification } = harness();
+    await initialize(client);
+    const uri = "file:///workspace/Aggregate.vue";
+    // "dup" appears twice in every variant regardless of `a`, but at a
+    // different generated offset each time (the preceding <p> only exists
+    // when a is true) — the analyzer must still report this as one
+    // aggregated diagnostic (analyzer.md §8.2), not one per variant.
+    await didOpen(
+      client,
+      uri,
+      `<script setup lang="ts">
+defineProps<{ a: boolean }>();
+</script>
+<template>
+  <p v-if="a">x</p>
+  <span id="dup"></span>
+  <span id="dup"></span>
+</template>`,
+    );
+    const published = await waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) => params.uri === uri,
+    );
+    const matches = published.diagnostics.filter(
+      (d: { code?: string }) => d.code === "id-duplication",
+    );
+    expect(matches).toHaveLength(1);
+  });
+
+  it("related information: multiple source origins for one generated diagnostic are reported together", async () => {
+    const fake = createFakeAdapter({
+      id: "fake",
+      handler: (request) => {
+        // Two equal-length attribute values sit adjacent in the generated
+        // HTML. A diagnostic range spanning the second half of the first
+        // value through the first half of the second overlaps both
+        // attribute-value mapping entries by an equal amount (5 chars
+        // each) — larger than the short "b" attribute-name span in
+        // between, so both values tie for "most specific" and both
+        // surface (§6.1: largest overlap, then attribute-value priority).
+        const aStart = request.html.indexOf('a="') + 'a="'.length;
+        const bStart = request.html.indexOf('b="') + 'b="'.length;
+        return {
+          diagnostics: [
+            {
+              ruleId: "spans-two-attributes",
+              severity: "warning",
+              message: "spans two attribute values",
+              range: { start: aStart + 5, end: bStart + 5 },
+            },
+          ],
+          failures: [],
+        };
+      },
+    });
+    const { client, waitForNotification } = harness(async (workspaceRoot) =>
+      createWorkspaceAnalyzer({
+        workspaceRoot,
+        adapters: [{ adapter: fake.adapter, settings: {}, enabled: true }],
+        typeContext: createTypeAnalysisContext(),
+      }),
+    );
+    await initialize(client);
+    const uri = "file:///workspace/Related.vue";
+    await didOpen(
+      client,
+      uri,
+      `<template><div a="xxxxxxxxxx" b="yyyyyyyyyy"></div></template>`,
+    );
+
+    const published = await waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) =>
+        params.uri === uri &&
+        params.diagnostics.some(
+          (d: { code?: string }) => d.code === "spans-two-attributes",
+        ),
+    );
+    const diagnostic = published.diagnostics.find(
+      (d: { code?: string }) => d.code === "spans-two-attributes",
+    ) as { relatedInformation?: unknown[] } | undefined;
+    expect(diagnostic).toBeDefined();
+    expect((diagnostic!.relatedInformation ?? []).length).toBeGreaterThan(0);
+  });
+});
+
 describe("vertical-slice E2E (language-server.md §13.2 items 1-3,6; §13.3)", () => {
   it("13.2-1: initialize negotiates UTF-16 position encoding", async () => {
     const { client } = harness();
