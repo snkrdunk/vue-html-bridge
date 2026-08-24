@@ -52,25 +52,36 @@ export function normalizeForJson(
       "value contains a circular reference, which is not JSON safe",
     );
   }
+  // `seen` tracks the current ancestor chain (a DFS stack), not "every value
+  // visited anywhere" — a value reachable via two different, non-nested
+  // paths (e.g. two properties pointing at the same shared object) is not
+  // circular and must be allowed, so it's removed again once its own
+  // subtree has been fully normalized.
   seen.add(value);
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizeForJson(item, seen));
+  try {
+    if (Array.isArray(value)) {
+      return value.map((item) => normalizeForJson(item, seen));
+    }
+    const prototype = Object.getPrototypeOf(value) as unknown;
+    if (prototype !== Object.prototype && prototype !== null) {
+      const ctorName =
+        (value as { constructor?: { name?: string } }).constructor?.name ??
+        "non-plain object";
+      throw new Error(
+        `value contains a ${ctorName} class instance, which is not a plain JSON object`,
+      );
+    }
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      if (entry === undefined) continue;
+      result[key] = normalizeForJson(entry, seen);
+    }
+    return result;
+  } finally {
+    seen.delete(value);
   }
-  const prototype = Object.getPrototypeOf(value) as unknown;
-  if (prototype !== Object.prototype && prototype !== null) {
-    const ctorName =
-      (value as { constructor?: { name?: string } }).constructor?.name ??
-      "non-plain object";
-    throw new Error(
-      `value contains a ${ctorName} class instance, which is not a plain JSON object`,
-    );
-  }
-  const result: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (entry === undefined) continue;
-    result[key] = normalizeForJson(entry, seen);
-  }
-  return result;
 }
 
 /**
