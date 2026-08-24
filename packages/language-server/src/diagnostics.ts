@@ -3,13 +3,13 @@ import {
   DiagnosticSeverity,
   type Diagnostic,
   type DiagnosticRelatedInformation,
+  type PositionEncodingKind,
 } from "vscode-languageserver/node";
-import type { TextDocument } from "vscode-languageserver-textdocument";
 import type {
   SourceDiagnostic,
   SourceRelatedInformation,
 } from "@vue-html-bridge/analyzer";
-import { toLspRange } from "./positions.js";
+import { toLspRange, type PositionIndex } from "./positions.js";
 
 const SEVERITY_MAP: Record<SourceDiagnostic["severity"], DiagnosticSeverity> = {
   error: DiagnosticSeverity.Error,
@@ -19,11 +19,13 @@ const SEVERITY_MAP: Record<SourceDiagnostic["severity"], DiagnosticSeverity> = {
 };
 
 export function toLspDiagnostic(
-  document: TextDocument,
+  uri: string,
+  index: PositionIndex,
+  encoding: PositionEncodingKind,
   diagnostic: SourceDiagnostic,
 ): Diagnostic {
   return {
-    range: toLspRange(document, diagnostic.sourceRange),
+    range: toLspRange(index, encoding, diagnostic.sourceRange),
     severity: SEVERITY_MAP[diagnostic.severity],
     message: diagnostic.message,
     source: diagnostic.adapterId
@@ -36,7 +38,7 @@ export function toLspDiagnostic(
     relatedInformation:
       diagnostic.relatedInformation.length > 0
         ? diagnostic.relatedInformation.map((related) =>
-            toLspRelatedInformation(document, related),
+            toLspRelatedInformation(uri, index, encoding, related),
           )
         : undefined,
     data: { diagnosticId: diagnostic.id },
@@ -46,13 +48,15 @@ export function toLspDiagnostic(
 // §7.1: related information is restricted to the same URI in the initial
 // version — cross-file mapping does not exist yet, so this is always safe.
 function toLspRelatedInformation(
-  document: TextDocument,
+  uri: string,
+  index: PositionIndex,
+  encoding: PositionEncodingKind,
   related: SourceRelatedInformation,
 ): DiagnosticRelatedInformation {
   return {
     location: {
-      uri: document.uri,
-      range: toLspRange(document, related.sourceRange),
+      uri,
+      range: toLspRange(index, encoding, related.sourceRange),
     },
     message: related.message,
   };
