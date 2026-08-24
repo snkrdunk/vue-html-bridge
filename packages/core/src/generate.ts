@@ -18,6 +18,7 @@ import { parse as parseSfc } from "@vue/compiler-sfc";
 import {
   evaluateExpression,
   isSideEffectFreeExpression,
+  lengthComparisonSafety,
   normalizeExpression,
   referencedPaths,
   type ExpressionEnvironment,
@@ -416,7 +417,10 @@ class DecisionCollector {
         const baseBinding = isShadowed(base, scope)
           ? undefined
           : this.bindings.get(base);
-        if (baseBinding?.domain.kind === "array") {
+        if (
+          baseBinding?.domain.kind === "array" &&
+          lengthComparisonSafety(expression, path) === "safe"
+        ) {
           this.addCardinality(base, scope);
           added = true;
         }
@@ -974,7 +978,7 @@ class Renderer {
   ) {
     return evaluateExpression(
       expression,
-      this.expressionEnvironment(scope, offset),
+      this.expressionEnvironment(scope, offset, expression),
     );
   }
 
@@ -998,13 +1002,17 @@ class Renderer {
   private expressionEnvironment(
     scope: readonly ForScope[],
     offset: number,
+    contextExpression: string,
   ): ExpressionEnvironment {
     return {
       resolve: (path) => {
         if (isShadowed(path, scope)) return { found: false };
         if (path.endsWith(".length")) {
           const base = path.slice(0, -".length".length);
-          if (!isShadowed(base, scope)) {
+          if (
+            !isShadowed(base, scope) &&
+            lengthComparisonSafety(contextExpression, path) === "safe"
+          ) {
             const identity = cardinalityIdentity(
               this.options.bindings,
               base,

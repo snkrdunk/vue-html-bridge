@@ -82,6 +82,107 @@ export function normalizeExpression(source: string): string {
   return source.replace(/\s+/g, "").replace(/^!/, (match) => match);
 }
 
+const LENGTH_COMPARISON_OPERATORS = new Set([
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+]);
+
+/**
+ * Whether `expression` compares `lengthPath` (e.g. "items.length") against a
+ * fixed threshold such that the comparison's TRUE branch is actually
+ * reachable by one of v-for's {0, 1, 2} cardinality exemplars (core.md
+ * §4.5) — each exemplar is a concrete array of that literal size, so e.g.
+ * `items.length === 2` is exactly correct for the 2-item exemplar.
+ *
+ * A bare `v-if="items.length"` is a truthiness check, equivalent to `> 0`.
+ * A "`> 2`-style predicate" (or `>= 3`, `=== 5`, ...) can never be true for
+ * any exemplar we ever generate — correlating it anyway would silently make
+ * it always false and never exercise its true branch at all, so the caller
+ * should fall back to treating it as an independent predicate instead.
+ */
+export function lengthComparisonSafety(
+  expression: string,
+  lengthPath: string,
+): "safe" | "unsafe" | "not-a-length-comparison" {
+  const root = parseExpression(expression);
+  if (!root) return "not-a-length-comparison";
+  const normalizedPath = normalizeExpression(lengthPath);
+
+  if (normalizeExpression(root.getText()) === normalizedPath) {
+    return "safe"; // bare truthiness check, equivalent to "> 0"
+  }
+  if (!ts.isBinaryExpression(root)) return "not-a-length-comparison";
+  if (!LENGTH_COMPARISON_OPERATORS.has(root.operatorToken.kind)) {
+    return "not-a-length-comparison";
+  }
+
+  const { left, right, operatorToken } = root;
+  let threshold: number | undefined;
+  let operator: ts.SyntaxKind = operatorToken.kind;
+  if (
+    ts.isNumericLiteral(right) &&
+    normalizeExpression(left.getText()) === normalizedPath
+  ) {
+    threshold = Number(right.text);
+  } else if (
+    ts.isNumericLiteral(left) &&
+    normalizeExpression(right.getText()) === normalizedPath
+  ) {
+    // "2 < items.length" reads right-to-left from the path's perspective —
+    // equivalent to "items.length > 2", so the operator flips.
+    threshold = Number(left.text);
+    operator = flip(operator);
+  }
+  if (threshold === undefined) return "not-a-length-comparison";
+  return trueBranchReachable(operator, threshold) ? "safe" : "unsafe";
+}
+
+function flip(operator: ts.SyntaxKind): ts.SyntaxKind {
+  switch (operator) {
+    case ts.SyntaxKind.GreaterThanToken:
+      return ts.SyntaxKind.LessThanToken;
+    case ts.SyntaxKind.GreaterThanEqualsToken:
+      return ts.SyntaxKind.LessThanEqualsToken;
+    case ts.SyntaxKind.LessThanToken:
+      return ts.SyntaxKind.GreaterThanToken;
+    case ts.SyntaxKind.LessThanEqualsToken:
+      return ts.SyntaxKind.GreaterThanEqualsToken;
+    default:
+      return operator; // ===/!==/==/!= are symmetric
+  }
+}
+
+/** Is there some n in {0, 1, 2} for which `n <operator> threshold` is true? */
+function trueBranchReachable(
+  operator: ts.SyntaxKind,
+  threshold: number,
+): boolean {
+  switch (operator) {
+    case ts.SyntaxKind.GreaterThanToken:
+      return threshold < 2;
+    case ts.SyntaxKind.GreaterThanEqualsToken:
+      return threshold <= 2;
+    case ts.SyntaxKind.LessThanToken:
+      return threshold > 0;
+    case ts.SyntaxKind.LessThanEqualsToken:
+      return threshold >= 0;
+    case ts.SyntaxKind.EqualsEqualsToken:
+    case ts.SyntaxKind.EqualsEqualsEqualsToken:
+      return threshold >= 0 && threshold <= 2;
+    case ts.SyntaxKind.ExclamationEqualsToken:
+    case ts.SyntaxKind.ExclamationEqualsEqualsToken:
+      return true; // {0,1,2} always has a member other than any single threshold
+    default:
+      return false;
+  }
+}
+
 function evaluate(
   node: ts.Expression,
   environment: ExpressionEnvironment,

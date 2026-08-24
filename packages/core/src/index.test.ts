@@ -53,6 +53,27 @@ defineProps<{ items: string[] }>();
     ]);
   });
 
+  it("falls back to an independent predicate for a >2-style length comparison instead of always-false", async () => {
+    const source = `<script setup lang="ts">
+defineProps<{ items: string[] }>();
+</script>
+<template>
+  <ul><li v-for="item in items">{{ item }}</li></ul>
+  <p v-if="items.length > 2">many items</p>
+</template>`;
+    const result = await generateVariants({ filename: "/p/Many.vue", source });
+    // Two independent decisions (cardinality + the fallback predicate), not
+    // one shared decision that would make "many items" permanently
+    // unreachable since cardinality never exceeds 2.
+    expect(result.stats.decisionCount).toBe(2);
+    expect(
+      result.variants.some((variant) => variant.html.includes("many items")),
+    ).toBe(true);
+    expect(
+      result.variants.some((variant) => !variant.html.includes("many items")),
+    ).toBe(true);
+  });
+
   it("scopes an expression referencing a v-for alias separately from an outer binding of the same name", async () => {
     const source = `<script setup lang="ts">
 import { ref } from "vue";
