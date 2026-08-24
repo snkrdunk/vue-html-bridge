@@ -48,6 +48,67 @@ interface Decision {
   values: readonly JsonValue[];
 }
 
+/**
+ * A v-for alias currently in scope while walking/rendering. `scopeId` ties
+ * decisions derived from expressions that reference this alias to the FOR
+ * node's own source range (core.md §4.2), so the same alias name used in
+ * two different loops — or shadowing an outer binding of the same name —
+ * never collapses into one decision.
+ */
+interface ForScope {
+  alias: string;
+  scopeId: string;
+}
+
+function rootIdentifier(path: string): string {
+  const dot = path.indexOf(".");
+  return dot === -1 ? path : path.slice(0, dot);
+}
+
+function isShadowed(path: string, scope: readonly ForScope[]): boolean {
+  const root = rootIdentifier(path);
+  return scope.some((frame) => frame.alias === root);
+}
+
+function enclosingScopeId(
+  paths: readonly string[],
+  scope: readonly ForScope[],
+): string | undefined {
+  for (let index = scope.length - 1; index >= 0; index -= 1) {
+    const frame = scope[index]!;
+    if (paths.some((path) => rootIdentifier(path) === frame.alias)) {
+      return frame.scopeId;
+    }
+  }
+  return undefined;
+}
+
+function cardinalityIdentity(
+  bindings: ReadonlyMap<string, BindingInfo>,
+  source: string,
+  scope: readonly ForScope[],
+): string {
+  if (!isShadowed(source, scope)) {
+    const binding = bindings.get(source);
+    if (binding) return `${binding.identity}#cardinality`;
+  }
+  const scopeId = enclosingScopeId([source], scope);
+  return scopeId
+    ? `for:${scopeId}:${normalizeExpression(source)}#cardinality`
+    : `for:${normalizeExpression(source)}#cardinality`;
+}
+
+function predicateIdentity(
+  expression: string,
+  scope: readonly ForScope[],
+): string {
+  const normalized = normalizePredicate(expression);
+  const scopeId = enclosingScopeId(referencedPaths(normalized), scope);
+  return scopeId
+    ? `predicate:${scopeId}:${normalized}`
+    : `predicate:${normalized}`;
+}
+
 interface Environment {
   values: Map<string, JsonValue>;
   assignments: DecisionAssignment[];
@@ -294,23 +355,39 @@ class DecisionCollector {
     private readonly bindings: ReadonlyMap<string, BindingInfo>,
   ) {}
 
-  walk(node: RootNode | TemplateChildNode): void {
+  walk(
+    node: RootNode | TemplateChildNode,
+    scope: readonly ForScope[] = [],
+  ): void {
+    let ownScope = scope;
     if (node.type === NodeTypes.ELEMENT) {
+      const forDirective = directive(node, "for");
+      const forExpression = expressionContent(forDirective?.exp);
+      const parsedFor = forExpression ? parseFor(forExpression) : undefined;
+      if (parsedFor) {
+        this.addCardinality(parsedFor.source, scope);
+        ownScope = [
+          ...scope,
+          { alias: parsedFor.alias, scopeId: `for:${node.loc.start.offset}` },
+        ];
+      }
       for (const prop of node.props) {
-        if (prop.type !== NodeTypes.DIRECTIVE) continue;
+        if (prop.type !== NodeTypes.DIRECTIVE || prop.name === "for") continue;
         const expression = expressionContent(prop.exp);
-        if (prop.name === "for" && expression) {
-          const parsed = parseFor(expression);
-          if (parsed) this.addCardinality(parsed.source);
-        } else if (expression && ["if", "else-if"].includes(prop.name)) {
-          this.addExpression(expression, true, prop.exp!);
+        // Vue 3: when v-if sits on the same element as v-for, v-if is
+        // evaluated OUTSIDE the loop and cannot see its alias — only the
+        // node's other directives and its children can (core.md §5.3).
+        const isIfLike = prop.name === "if" || prop.name === "else-if";
+        const propScope = isIfLike ? scope : ownScope;
+        if (expression && isIfLike) {
+          this.addExpression(expression, true, prop.exp!, propScope);
         } else if (expression && ["bind", "model"].includes(prop.name)) {
-          this.addExpression(expression, false, prop.exp!);
+          this.addExpression(expression, false, prop.exp!, propScope);
         }
         if (prop.name === "bind" && prop.arg) {
           const arg = asSimpleExpression(prop.arg);
           if (arg && !arg.isStatic) {
-            this.addExpression(arg.content, false, prop.arg);
+            this.addExpression(arg.content, false, prop.arg, propScope);
           }
         }
       }
@@ -322,16 +399,29 @@ class DecisionCollector {
         );
       }
     }
-    for (const child of childrenOf(node)) this.walk(child);
+    for (const child of childrenOf(node)) this.walk(child, ownScope);
   }
 
   private addExpression(
     expression: string,
     booleanSite: boolean,
     loc: ExpressionNode,
+    scope: readonly ForScope[],
   ): void {
     let added = false;
     for (const path of referencedPaths(expression)) {
+      if (isShadowed(path, scope)) continue;
+      if (path.endsWith(".length")) {
+        const base = path.slice(0, -".length".length);
+        const baseBinding = isShadowed(base, scope)
+          ? undefined
+          : this.bindings.get(base);
+        if (baseBinding?.domain.kind === "array") {
+          this.addCardinality(base, scope);
+          added = true;
+        }
+        continue;
+      }
       const binding = this.bindings.get(path);
       if (!binding) continue;
       if (binding.domain.kind === "finite") {
@@ -341,17 +431,11 @@ class DecisionCollector {
           binding.domain.values,
         );
         added = true;
-      } else if (
-        binding.domain.kind === "array" &&
-        expression.includes(".length")
-      ) {
-        this.addCardinality(path.replace(/\.length$/, ""));
-        added = true;
       }
     }
     if (booleanSite && !added && isSideEffectFreeExpression(expression)) {
-      const normalized = normalizePredicate(expression);
-      this.addDecision(`predicate:${normalized}`, expression, [true, false]);
+      const identity = predicateIdentity(expression, scope);
+      this.addDecision(identity, expression, [true, false]);
     } else if (booleanSite && !added) {
       this.diagnostics.push({
         code: "expression-not-symbolically-evaluable",
@@ -366,11 +450,8 @@ class DecisionCollector {
     }
   }
 
-  private addCardinality(path: string): void {
-    const binding = this.bindings.get(path);
-    const identity = binding
-      ? `${binding.identity}#cardinality`
-      : `for:${normalizeExpression(path)}#cardinality`;
+  private addCardinality(path: string, scope: readonly ForScope[]): void {
+    const identity = cardinalityIdentity(this.bindings, path, scope);
     this.addDecision(identity, `${path}.length`, [0, 1, 2]);
   }
 
@@ -420,7 +501,10 @@ class Renderer {
     );
   }
 
-  renderChildren(nodes: readonly TemplateChildNode[]): Fragment[] {
+  renderChildren(
+    nodes: readonly TemplateChildNode[],
+    scope: readonly ForScope[] = [],
+  ): Fragment[] {
     const result: Fragment[] = [];
     for (let index = 0; index < nodes.length; index += 1) {
       const node = nodes[index];
@@ -448,13 +532,16 @@ class Renderer {
           break;
         }
         const selected = chain.find((branch) => {
-          const condition =
-            expressionContent(directive(branch, "if")?.exp) ??
-            expressionContent(directive(branch, "else-if")?.exp);
-          return condition === undefined || this.truthy(condition);
+          const expNode =
+            directive(branch, "if")?.exp ?? directive(branch, "else-if")?.exp;
+          const condition = expressionContent(expNode);
+          return (
+            condition === undefined ||
+            this.truthy(condition, scope, expNode!.loc.start.offset)
+          );
         });
         if (selected)
-          result.push(...this.renderNode(selected, { skipIf: true }));
+          result.push(...this.renderNode(selected, { skipIf: true }, scope));
         index = cursor - 1;
         continue;
       }
@@ -464,7 +551,7 @@ class Renderer {
       ) {
         continue;
       }
-      result.push(...this.renderNode(node));
+      result.push(...this.renderNode(node, {}, scope));
     }
     return result;
   }
@@ -472,6 +559,7 @@ class Renderer {
   private renderNode(
     node: TemplateChildNode | undefined,
     state: { skipIf?: boolean; skipFor?: boolean } = {},
+    scope: readonly ForScope[] = [],
   ): Fragment[] {
     if (!node) return [];
     if (node.type === NodeTypes.TEXT) {
@@ -518,10 +606,16 @@ class Renderer {
             );
             return [];
           }
-          const count = this.cardinality(parsed.source);
+          const count = this.cardinality(parsed.source, scope);
+          const ownScope = [
+            ...scope,
+            { alias: parsed.alias, scopeId: `for:${node.loc.start.offset}` },
+          ];
           const output: Fragment[] = [];
           for (let index = 0; index < count; index += 1) {
-            output.push(...this.renderNode(node, { ...state, skipFor: true }));
+            output.push(
+              ...this.renderNode(node, { ...state, skipFor: true }, ownScope),
+            );
           }
           return output;
         }
@@ -529,25 +623,36 @@ class Renderer {
     }
 
     if (!state.skipIf) {
-      const condition = expressionContent(directive(node, "if")?.exp);
-      if (condition && !this.truthy(condition)) return [];
+      const ifDirective = directive(node, "if");
+      const condition = expressionContent(ifDirective?.exp);
+      if (
+        condition &&
+        !this.truthy(condition, scope, ifDirective!.exp!.loc.start.offset)
+      ) {
+        return [];
+      }
     }
 
     const tag = node.tag;
     if (tag === "slot") return [];
-    if (tag === "Suspense") return this.renderSuspense(node);
+    if (tag === "Suspense") return this.renderSuspense(node, scope);
     if (["Transition", "Teleport"].includes(tag)) {
-      return this.renderChildren(unwrapDefaultSlot(node.children));
+      return this.renderChildren(unwrapDefaultSlot(node.children), scope);
     }
     if (tag === "TransitionGroup") {
       const wrapper = textContent(staticAttribute(node, "tag")?.value);
       if (!wrapper)
-        return this.renderChildren(unwrapDefaultSlot(node.children));
+        return this.renderChildren(unwrapDefaultSlot(node.children), scope);
       return [
-        this.renderElement(node, wrapper, unwrapDefaultSlot(node.children)),
+        this.renderElement(
+          node,
+          wrapper,
+          unwrapDefaultSlot(node.children),
+          scope,
+        ),
       ];
     }
-    if (tag === "template") return this.renderChildren(node.children);
+    if (tag === "template") return this.renderChildren(node.children, scope);
 
     const isVueIs = textContent(staticAttribute(node, "is")?.value)?.startsWith(
       "vue:",
@@ -558,21 +663,22 @@ class Renderer {
       (node.tagType === ElementTypes.COMPONENT && !custom) ||
       /^[A-Z]/.test(tag);
     if (component) return [];
-    return [this.renderElement(node, tag, node.children)];
+    return [this.renderElement(node, tag, node.children, scope)];
   }
 
   private renderElement(
     node: ElementNode,
     tagName: string,
     children: readonly TemplateChildNode[],
+    scope: readonly ForScope[],
   ): FragmentElement {
     const tagStart = node.loc.start.offset + 1;
     const tagRange = this.sourceRangeOffsets(
       tagStart,
       tagStart + node.tag.length,
     );
-    const attributes = this.renderAttributes(node);
-    let renderedChildren = this.renderChildren(children);
+    const attributes = this.renderAttributes(node, scope);
+    let renderedChildren = this.renderChildren(children, scope);
     const htmlDirective = directive(node, "html");
     const textDirective = directive(node, "text");
     if (htmlDirective) {
@@ -618,7 +724,10 @@ class Renderer {
     };
   }
 
-  private renderAttributes(node: ElementNode): FragmentAttribute[] {
+  private renderAttributes(
+    node: ElementNode,
+    scope: readonly ForScope[],
+  ): FragmentAttribute[] {
     const output: FragmentAttribute[] = [];
     const model = directive(node, "model");
     for (const prop of node.props) {
@@ -672,7 +781,7 @@ class Renderer {
         continue;
       }
       if (prop.name === "bind") {
-        output.push(...this.renderBind(prop));
+        output.push(...this.renderBind(prop, scope));
       } else if (prop.name === "on") {
         output.push(this.renderEvent(prop));
       } else if (prop.name === "model") {
@@ -693,13 +802,16 @@ class Renderer {
     );
   }
 
-  private renderBind(prop: DirectiveNode): FragmentAttribute[] {
+  private renderBind(
+    prop: DirectiveNode,
+    scope: readonly ForScope[],
+  ): FragmentAttribute[] {
     if (prop.modifiers.some((modifier) => modifier.content === "prop")) {
       return [];
     }
     const exp = asSimpleExpression(prop.exp);
     if (!exp?.content) return [];
-    const evaluated = this.evaluate(exp.content);
+    const evaluated = this.evaluate(exp.content, scope, exp.loc.start.offset);
     if (!prop.arg) {
       if (evaluated.kind !== "known" || !isJsonObject(evaluated.value)) {
         this.addDiagnostic(
@@ -712,14 +824,14 @@ class Renderer {
       return Object.entries(evaluated.value)
         .sort(([left], [right]) => left.localeCompare(right))
         .flatMap(([name, value]) =>
-          this.attributeFromValue(name, value, prop.loc, exp),
+          this.attributeFromValue(name, value, prop.loc, exp, scope),
         );
     }
     let name: string | undefined;
     const argExp = asSimpleExpression(prop.arg);
     if (argExp?.isStatic) name = argExp.content;
     else if (argExp) {
-      const arg = this.evaluate(argExp.content);
+      const arg = this.evaluate(argExp.content, scope, argExp.loc.start.offset);
       if (arg.kind === "known" && typeof arg.value === "string")
         name = arg.value;
     }
@@ -738,7 +850,13 @@ class Renderer {
     }
     if (ATTRIBUTE_BLOCKLIST.has(name)) return [];
     if (evaluated.kind === "known") {
-      return this.attributeFromValue(name, evaluated.value, prop.arg.loc, exp);
+      return this.attributeFromValue(
+        name,
+        evaluated.value,
+        prop.arg.loc,
+        exp,
+        scope,
+      );
     }
     const sourceRange = this.sourceRange(exp.loc);
     return [
@@ -751,7 +869,7 @@ class Renderer {
           kind: "sentinel",
           sourceRange,
           reason: "unresolved-expression",
-          originalType: this.expressionType(exp.content),
+          originalType: this.expressionType(exp.content, scope),
         },
       },
     ];
@@ -762,6 +880,7 @@ class Renderer {
     value: JsonValue | undefined,
     fallbackLoc: SourceLocation,
     valueNode: SimpleExpressionNode,
+    scope: readonly ForScope[],
   ): FragmentAttribute[] {
     if (
       value === null ||
@@ -774,6 +893,7 @@ class Renderer {
     const provenance = this.provenanceForExpression(
       valueNode.content,
       valueRange,
+      scope,
     );
     const stringValue =
       value === true && BOOLEAN_ATTRIBUTES.has(name.toLowerCase())
@@ -829,7 +949,10 @@ class Renderer {
     };
   }
 
-  private renderSuspense(node: ElementNode): Fragment[] {
+  private renderSuspense(
+    node: ElementNode,
+    scope: readonly ForScope[],
+  ): Fragment[] {
     const decision = this.decisionsByIdentity.get(
       `suspense:${node.loc.start.offset}`,
     );
@@ -842,45 +965,60 @@ class Renderer {
       return expressionContent(slot?.arg) === selected;
     });
     return template && template.type === NodeTypes.ELEMENT
-      ? this.renderChildren(template.children)
+      ? this.renderChildren(template.children, scope)
       : [];
   }
 
-  private evaluate(expression: string) {
-    return evaluateExpression(expression, this.expressionEnvironment());
+  private evaluate(
+    expression: string,
+    scope: readonly ForScope[],
+    offset: number,
+  ) {
+    return evaluateExpression(
+      expression,
+      this.expressionEnvironment(scope, offset),
+    );
   }
 
-  private truthy(expression: string): boolean {
-    const result = this.evaluate(expression);
+  private truthy(
+    expression: string,
+    scope: readonly ForScope[],
+    offset: number,
+  ): boolean {
+    const result = this.evaluate(expression, scope, offset);
     return result.kind === "known" ? Boolean(result.value) : false;
   }
 
-  private cardinality(source: string): number {
-    const binding = this.options.bindings.get(source);
-    const identity = binding
-      ? `${binding.identity}#cardinality`
-      : `for:${normalizeExpression(source)}#cardinality`;
+  private cardinality(source: string, scope: readonly ForScope[]): number {
+    const identity = cardinalityIdentity(this.options.bindings, source, scope);
     const decision = this.decisionsByIdentity.get(identity);
     return Number(
       decision ? this.options.environment.values.get(decision.id) : 1,
     );
   }
 
-  private expressionEnvironment(): ExpressionEnvironment {
+  private expressionEnvironment(
+    scope: readonly ForScope[],
+    offset: number,
+  ): ExpressionEnvironment {
     return {
       resolve: (path) => {
+        if (isShadowed(path, scope)) return { found: false };
         if (path.endsWith(".length")) {
           const base = path.slice(0, -".length".length);
-          const binding = this.options.bindings.get(base);
-          const identity = binding
-            ? `${binding.identity}#cardinality`
-            : `for:${normalizeExpression(base)}#cardinality`;
-          const decision = this.decisionsByIdentity.get(identity);
-          if (decision) {
-            return {
-              found: true,
-              value: this.options.environment.values.get(decision.id) ?? 0,
-            };
+          if (!isShadowed(base, scope)) {
+            const identity = cardinalityIdentity(
+              this.options.bindings,
+              base,
+              scope,
+            );
+            const decision = this.decisionsByIdentity.get(identity);
+            if (decision) {
+              return {
+                found: true,
+                value: this.options.environment.values.get(decision.id) ?? 0,
+              };
+            }
           }
         }
         const binding = this.options.bindings.get(path);
@@ -896,14 +1034,11 @@ class Renderer {
       },
       resolvePredicate: (source) => {
         const negated = source.startsWith("!");
-        const base = normalizePredicate(source);
-        const decision = this.decisionsByIdentity.get(`predicate:${base}`);
+        const identity = predicateIdentity(source, scope);
+        const decision = this.decisionsByIdentity.get(identity);
         if (!decision) {
-          const local = this.options.decisions.find(
-            (candidate) =>
-              candidate.identity.startsWith("local-predicate:") &&
-              candidate.displayName.replace(/\s+/g, "") ===
-                source.replace(/^!/, ""),
+          const local = this.decisionsByIdentity.get(
+            `local-predicate:${offset}`,
           );
           if (!local) return undefined;
           const value = Boolean(this.options.environment.values.get(local.id));
@@ -918,8 +1053,10 @@ class Renderer {
   private provenanceForExpression(
     expression: string,
     sourceRange: SourceRange,
+    scope: readonly ForScope[],
   ): GeneratedValueProvenance {
     for (const path of referencedPaths(expression)) {
+      if (isShadowed(path, scope)) continue;
       const binding = this.options.bindings.get(path);
       if (!binding) continue;
       const decision = this.decisionsByIdentity.get(binding.identity);
@@ -942,8 +1079,12 @@ class Renderer {
     return { kind: "source-literal", sourceRange };
   }
 
-  private expressionType(expression: string): string | undefined {
+  private expressionType(
+    expression: string,
+    scope: readonly ForScope[],
+  ): string | undefined {
     for (const path of referencedPaths(expression)) {
+      if (isShadowed(path, scope)) continue;
       const binding = this.options.bindings.get(path);
       if (binding) return binding.domain.typeName;
     }
