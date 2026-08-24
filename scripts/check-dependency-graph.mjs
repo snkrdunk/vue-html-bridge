@@ -8,11 +8,8 @@ import { fileURLToPath } from "node:url";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packagesDir = join(repoRoot, "packages");
 
-// `@vue-html-bridge/adapter-loader` is implemented in Phase 3
-// (implementation-plan.md §6 task 3; adapter-loader.md). cli's dependency
-// edge onto it is intentionally still absent here until the CLI is wired up
-// to use it (separate, later Phase 3 work). Update this map when a new
-// package is scaffolded or its declared dependencies change.
+// Update this map when a new package is scaffolded or its declared
+// dependencies change.
 const EXPECTED_INTERNAL_DEPS = {
   "vue-html-bridge": [],
   "@vue-html-bridge/validator-api": [],
@@ -49,11 +46,17 @@ const EXPECTED_INTERNAL_DEPS = {
     "@vue-html-bridge/validator-api",
     "@vue-html-bridge/settings",
   ],
+  // "@vue-html-bridge/adapter-testkit" here is a devDependency-only edge (the
+  // same pattern as adapter-markuplint's and language-server's): the fake
+  // adapter and shared fixtures are used only by this package's own test
+  // suite, never at runtime.
   "@vue-html-bridge/cli": [
-    "@vue-html-bridge/analyzer",
+    "@vue-html-bridge/adapter-loader",
     "@vue-html-bridge/adapter-markuplint",
-    "@vue-html-bridge/validator-api",
+    "@vue-html-bridge/adapter-testkit",
+    "@vue-html-bridge/analyzer",
     "@vue-html-bridge/settings",
+    "@vue-html-bridge/validator-api",
   ],
 };
 

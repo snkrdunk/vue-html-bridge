@@ -114,6 +114,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@vue-html-bridge/adapter-loader':
+        specifier: workspace:*
+        version: link:../adapter-loader
       '@vue-html-bridge/adapter-markuplint':
         specifier: workspace:*
         version: link:../adapter-markuplint
@@ -126,10 +129,19 @@ importers:
       '@vue-html-bridge/validator-api':
         specifier: workspace:*
         version: link:../validator-api
+      minimatch:
+        specifier: 10.2.6
+        version: 10.2.6
     devDependencies:
       '@types/node':
         specifier: 26.2.0
         version: 26.2.0
+      '@vue-html-bridge/adapter-testkit':
+        specifier: workspace:*
+        version: link:../adapter-testkit
+      vitest:
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@26.2.0)(vite@8.2.1(@types/node@26.2.0)(yaml@2.9.0))
 
   packages/core:
     dependencies:
