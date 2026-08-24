@@ -199,6 +199,33 @@ defineProps<{ loggedIn: boolean }>();
     }
   });
 
+  it("converts the .right and .middle click modifiers to their real event names", async () => {
+    const source = `<template>
+  <button @click.right="onRight">A</button>
+  <button @click.middle="onMiddle">B</button>
+  <button @keyup.right="onArrowRight">C</button>
+</template>`;
+    const result = await generateVariants({ filename: "/p/Click.vue", source });
+    const variant = result.variants[0]!;
+    expect(variant.html).toBe(
+      '<button oncontextmenu="dummy-fn">A</button>' +
+        '<button onmouseup="dummy-fn">B</button>' +
+        '<button onkeyup="dummy-fn">C</button>',
+    );
+  });
+
+  it("emits a v-pre subtree statically, without directive or interpolation processing", async () => {
+    const source = `<script setup lang="ts">
+defineProps<{ loggedIn: boolean }>();
+</script>
+<template><div v-pre v-if="loggedIn">{{ loggedIn }}</div></template>`;
+    const result = await generateVariants({ filename: "/p/Pre.vue", source });
+    expect(result.variants).toHaveLength(1);
+    expect(result.variants[0]?.html).toBe(
+      '<div v-if="loggedIn">{{ loggedIn }}</div>',
+    );
+  });
+
   it("keeps sentinel and synthetic provenance at source expression ranges", async () => {
     const source = `<script setup lang="ts">defineProps<{ pressed: string }>();</script>
 <template><button :aria-pressed="pressed" @click="save">Toggle</button></template>`;

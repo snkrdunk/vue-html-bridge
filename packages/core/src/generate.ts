@@ -912,7 +912,10 @@ class Renderer {
 
   private renderEvent(prop: DirectiveNode): FragmentAttribute {
     const argExp = asSimpleExpression(prop.arg);
-    const event = argExp?.isStatic ? argExp.content : "event";
+    const event = eventNameForModifiers(
+      argExp?.isStatic ? argExp.content : "event",
+      prop.modifiers.map((modifier) => modifier.content),
+    );
     const sourceRange = this.sourceRange(prop.loc);
     return {
       name: `on${event.toLowerCase()}`,
@@ -1274,6 +1277,18 @@ function parseFor(
     alias: (match[1] ?? match[2] ?? "item").trim(),
     source: (match[3] ?? "").trim(),
   };
+}
+
+// core.md §5.3: ".right"/".middle" are the only modifiers that change the
+// HTML event name the compiler listens for, and only for "click".
+function eventNameForModifiers(
+  event: string,
+  modifiers: readonly string[],
+): string {
+  if (event !== "click") return event;
+  if (modifiers.includes("right")) return "contextmenu";
+  if (modifiers.includes("middle")) return "mouseup";
+  return event;
 }
 
 function normalizePredicate(expression: string): string {
