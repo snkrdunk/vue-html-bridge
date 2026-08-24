@@ -480,7 +480,7 @@ The following will be decided by ADR, after an implementation spike or measureme
 - ~~Whether `sourceFilename` or `virtualFilename` should apply to Markuplint's config override~~ — confirmed as designed: `virtualFilename` (adapter-markuplint §4.2), empirically verified against the real `MLEngine.fromCode` API (ADR-0003).
 - ~~The scope of support if a client chooses UTF-8/UTF-32 position encoding~~ — resolved: UTF-16-only for Phase 1, UTF-8/UTF-32 in scope for Phase 2 Track 3 (ADR-0004; language-server.md §5).
 - The default threshold for the variant warning, and a way to measure it without telemetry (after Phase 2 measurement)
-- Whether sandboxing external adapters is feasible. At minimum, the initial release relies on trust and explicit configuration. (Phase 3)
+- ~~Whether sandboxing external adapters is feasible~~ — resolved: no sandboxing in v1; loading remains a trust boundary, not a security boundary, exactly as adapter-loader.md already specified (ADR-0008).
 - The conditions for moving from push diagnostics to pull diagnostics (after Phase 2 measurement)
 
 ## 16. References

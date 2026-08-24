@@ -409,12 +409,12 @@ const props = defineProps<{ loggedIn: boolean }>();
 
 Each item lists where the decision will be made.
 
-- Whether to bundle a minimal client launcher in the language server package, or ship it as a separate package (decided at Phase 3's initial release)
+- ~~Whether to bundle a minimal client launcher in the language server package, or ship it as a separate package~~ — resolved: ship standalone (the stdio binary and library entry point only); no bundled editor client in this release (ADR-0009).
 - Which client/version conditions justify adding pull diagnostics (ADR after Phase 2 measurements)
 - ~~Whether to run TypeScript/Vue project service and core execution in a separate worker thread~~ — resolved by the Phase 0 spike: budget met on every measured fixture, no migration for Phase 0/1 (ADR-0005; monorepo.md §14). Re-measured at the Phase 1 and Phase 2 performance gates; core's public API stays async regardless, so callers do not change even if this moves later.
 - Finer-grained trust levels depending on config format (JSON vs. JS). The initial version uses all-or-nothing (ADR once this is requested)
 - How long to keep the last-known-good session after a config parse error (decided during Phase 2 implementation)
-- Package specifier allowlist and PnP support for external adapter loading (Phase 3)
+- ~~Package specifier allowlist and PnP support for external adapter loading~~ — resolved: no curated allowlist (any plain npm specifier is accepted once the trust gate passes), no PnP support in v1 (ADR-0008).
 - ~~Initial support scope when an LSP client does not offer UTF-16~~ — resolved by the Phase 0 client matrix: UTF-16-only for Phase 1, UTF-8/UTF-32 in scope for Phase 2 Track 3 (ADR-0004, §5).
 
 ## 15. References
