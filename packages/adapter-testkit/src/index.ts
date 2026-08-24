@@ -6,4 +6,4 @@ export {
   type AdapterContractFixture,
 } from "./contract.js";
 
-export { createNoBlinkAdapter } from "./sample.js";
+export { createNoBlinkAdapter, type NoBlinkSettings } from "./sample.js";

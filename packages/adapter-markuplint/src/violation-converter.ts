@@ -1,9 +1,10 @@
 // Violation -> GeneratedDiagnostic (adapter-markuplint.md §6).
 import type { MLResultInfo } from "markuplint";
-import type {
-  AdapterLogger,
-  DiagnosticSeverity,
-  GeneratedDiagnostic,
+import {
+  compareGeneratedDiagnostics,
+  type AdapterLogger,
+  type DiagnosticSeverity,
+  type GeneratedDiagnostic,
 } from "@vue-html-bridge/validator-api";
 import { classifyApplicability } from "./generated-profile.js";
 import { buildLineStartIndex, toUtf16Range } from "./location-index.js";
@@ -35,11 +36,16 @@ export function toGeneratedDiagnostics(
   logger: AdapterLogger,
 ): readonly GeneratedDiagnostic[] {
   const lineStarts = buildLineStartIndex(html);
-  return violations.map((violation) => ({
+  const diagnostics = violations.map((violation) => ({
     ruleId: violation.ruleId,
     severity: toSeverity(violation.severity, logger),
     message: violation.message,
     range: toUtf16Range(lineStarts, violation),
     applicability: classifyApplicability(violation.ruleId),
   }));
+  // validator-api.md §5: the adapter sorts diagnostics (range.start,
+  // range.end, severity, ruleId, message) before returning, so the result is
+  // deterministic and comparable across runs regardless of Markuplint's own
+  // internal rule-execution order.
+  return [...diagnostics].sort(compareGeneratedDiagnostics);
 }
