@@ -147,7 +147,10 @@ export interface DiagnosticEvidence {
     range?: GeneratedRange;
   };
   truncated: boolean;
-  originalValidatorMessage?: string;
+  /** Plural: §7.1/§8.1 merge every raw diagnostic that rewrites to the same
+   *  bridge diagnostic into one entry, so more than one original message can
+   *  need to be kept — ordered by ruleId/message, truncated at 5. */
+  originalValidatorMessages?: readonly string[];
 }
 ```
 
@@ -310,8 +313,9 @@ Normalized source diagnostic:
     'Cannot narrow this attribute value to a finite set. Use a literal union allowed for aria-pressed (current type: string).',
   sourceRange: { filename: "Toggle.vue", start: 116, end: 123 },
   evidence: {
-    originalValidatorMessage:
+    originalValidatorMessages: [
       'The value of "aria-pressed" must be "true", "false", or "mixed".'
+    ]
   }
 }
 ```

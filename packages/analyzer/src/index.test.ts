@@ -236,14 +236,14 @@ describe("createWorkspaceAnalyzer (analyzer.md §12, Phase 1 subset)", () => {
     const fake = createFakeAdapter({
       id: "fake",
       handler: (request) => {
-        const index = request.html.indexOf("dummy-string");
+        const index = request.html.indexOf("missing");
         return {
           diagnostics: [
             {
               ruleId: "emoji-check",
               severity: "warning",
               message: "check",
-              range: { start: index, end: index + "dummy-string".length },
+              range: { start: index, end: index + "missing".length },
             },
           ],
           failures: [],
@@ -254,7 +254,10 @@ describe("createWorkspaceAnalyzer (analyzer.md §12, Phase 1 subset)", () => {
       workspaceRoot: "/workspace",
       adapters: [{ adapter: fake.adapter, settings: {}, enabled: true }],
     });
-    const source = `<template><p>\u{1F600}</p><span :title="missing"></span></template>`;
+    // A static (source-literal) attribute, so this diagnostic is not
+    // rewritten by provenance normalization (§7) — this test is about UTF-16
+    // offsets, not sentinel rewriting (covered separately).
+    const source = `<template><p>\u{1F600}</p><span title="missing"></span></template>`;
     const result = await analyzer.analyze({
       uri: "file:///workspace/Emoji.vue",
       filename: "/workspace/Emoji.vue",
@@ -269,12 +272,51 @@ describe("createWorkspaceAnalyzer (analyzer.md §12, Phase 1 subset)", () => {
     ).toBe("missing");
   });
 
-  it("16: the virtual filename is deterministic by sourceFilename + HTML content, independent of variant ID/order", async () => {
-    const seen: string[] = [];
+  it("16: the virtual filename is deterministic by sourceFilename + HTML content, independent of variant ID/order or analyzer instance", async () => {
+    async function analyzeOnce(): Promise<string[]> {
+      const seen: string[] = [];
+      const fake = createFakeAdapter({
+        id: "fake",
+        handler: (request) => {
+          seen.push(request.virtualFilename);
+          return { diagnostics: [], failures: [] };
+        },
+      });
+      const analyzer = await createWorkspaceAnalyzer({
+        workspaceRoot: "/workspace",
+        adapters: [{ adapter: fake.adapter, settings: {}, enabled: true }],
+      });
+      await analyzer.analyze({
+        uri: "file:///workspace/Menu.vue",
+        filename: "/workspace/Menu.vue",
+        source: SOURCE,
+        signal: new AbortController().signal,
+      });
+      await analyzer.dispose();
+      return seen;
+    }
+    // Two independent analyzer instances (so neither's validation cache can
+    // mask a repeat call) must agree on the same virtual filenames.
+    const first = await analyzeOnce();
+    const second = await analyzeOnce();
+    expect(first).toHaveLength(2); // 2 variants sharing 2 distinct HTML strings
+    expect(first).toEqual(second);
+    expect(new Set(first).size).toBe(2);
+    for (const name of first) {
+      expect(
+        name.startsWith("/workspace/Menu.vue.__vue_html_bridge__/variant-"),
+      ).toBe(true);
+      expect(name.endsWith(".html")).toBe(true);
+      expect(name).toMatch(/^[\x20-\x7E]+$/); // path-segment-safe characters only
+    }
+  });
+
+  it("virtual filenames repeat correctly within one adapter session's validation cache", async () => {
+    const calls: string[] = [];
     const fake = createFakeAdapter({
       id: "fake",
       handler: (request) => {
-        seen.push(request.virtualFilename);
+        calls.push(request.virtualFilename);
         return { diagnostics: [], failures: [] };
       },
     });
@@ -295,14 +337,359 @@ describe("createWorkspaceAnalyzer (analyzer.md §12, Phase 1 subset)", () => {
       signal: new AbortController().signal,
     });
     await analyzer.dispose();
-    expect(seen).toHaveLength(4); // 2 variants x 2 analyze() calls
-    expect(new Set(seen).size).toBe(2); // same 2 virtual filenames both times
-    for (const name of seen) {
-      expect(
-        name.startsWith("/workspace/Menu.vue.__vue_html_bridge__/variant-"),
-      ).toBe(true);
-      expect(name.endsWith(".html")).toBe(true);
-      expect(name).toMatch(/^[\x20-\x7E]+$/); // path-segment-safe characters only
-    }
+    // The second analyze() call hits the validation cache (§10.2), so the
+    // adapter itself is invoked only for the first call's 2 distinct variants.
+    expect(calls).toHaveLength(2);
+  });
+
+  it("5: rewrites a sentinel-value diagnostic and keeps the raw message as evidence", async () => {
+    const fake = createFakeAdapter({
+      id: "fake",
+      handler: (request) => {
+        const index = request.html.indexOf("dummy-string");
+        return {
+          diagnostics: [
+            {
+              ruleId: "invalid-attr",
+              severity: "error",
+              message:
+                'The value of "aria-pressed" must be "true", "false", or "mixed".',
+              range: { start: index, end: index + "dummy-string".length },
+            },
+          ],
+          failures: [],
+        };
+      },
+    });
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [{ adapter: fake.adapter, settings: {}, enabled: true }],
+    });
+    const result = await analyzer.analyze({
+      uri: "file:///workspace/Toggle.vue",
+      filename: "/workspace/Toggle.vue",
+      source: `<script setup lang="ts">defineProps<{ pressed: string }>();</script>
+<template><button :aria-pressed="pressed">Toggle</button></template>`,
+      signal: new AbortController().signal,
+    });
+    await analyzer.dispose();
+    const diagnostic = result.diagnostics.find(
+      (d) => d.code === "vue-html-bridge/non-finite-attribute-value",
+    );
+    expect(diagnostic).toBeDefined();
+    expect(diagnostic!.origin).toBe("validator");
+    expect(diagnostic!.evidence.originalValidatorMessages).toEqual([
+      'The value of "aria-pressed" must be "true", "false", or "mixed".',
+    ]);
+  });
+
+  it("6: the same rule at different positions within one variant becomes separate occurrences", async () => {
+    const fake = createFakeAdapter({
+      id: "fake",
+      handler: (request) => {
+        const diagnostics: {
+          ruleId: string;
+          severity: "warning";
+          message: string;
+          range: { start: number; end: number };
+        }[] = [];
+        let index = request.html.indexOf("id=");
+        while (index !== -1) {
+          diagnostics.push({
+            ruleId: "dup",
+            severity: "warning",
+            message: "dup id",
+            range: { start: index, end: index + 2 },
+          });
+          index = request.html.indexOf("id=", index + 1);
+        }
+        return { diagnostics, failures: [] };
+      },
+    });
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [{ adapter: fake.adapter, settings: {}, enabled: true }],
+    });
+    const result = await analyzer.analyze({
+      uri: "file:///workspace/Two.vue",
+      filename: "/workspace/Two.vue",
+      source: `<template><p id="a"></p><p id="b"></p></template>`,
+      signal: new AbortController().signal,
+    });
+    await analyzer.dispose();
+    const dupDiagnostics = result.diagnostics.filter((d) => d.code === "dup");
+    expect(dupDiagnostics).toHaveLength(2);
+    expect(
+      new Set(
+        dupDiagnostics.map(
+          (d) => `${d.sourceRange.start}-${d.sourceRange.end}`,
+        ),
+      ).size,
+    ).toBe(2);
+  });
+
+  it("7: the same source issue becomes one entry even when its generated offset differs across variants", async () => {
+    const fake = createFakeAdapter({
+      id: "fake",
+      handler: (request) => {
+        const index = request.html.indexOf("stable");
+        return {
+          diagnostics: [
+            {
+              ruleId: "id-check",
+              severity: "warning",
+              message: "check",
+              range: { start: index, end: index + "stable".length },
+            },
+          ],
+          failures: [],
+        };
+      },
+    });
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [{ adapter: fake.adapter, settings: {}, enabled: true }],
+    });
+    const result = await analyzer.analyze({
+      uri: "file:///workspace/Merge.vue",
+      filename: "/workspace/Merge.vue",
+      source: `<script setup lang="ts">defineProps<{ a: boolean }>();</script>
+<template><p v-if="a">x</p><span id="stable"></span></template>`,
+      signal: new AbortController().signal,
+    });
+    await analyzer.dispose();
+    const merged = result.diagnostics.filter((d) => d.code === "id-check");
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.evidence.variantCount).toBe(2);
+    expect(merged[0]!.evidence.variantIds).toHaveLength(2);
+  });
+
+  it("8: diagnostics with a different rule or message at the same range are not merged", async () => {
+    const fake = createFakeAdapter({
+      id: "fake",
+      handler: (request) => {
+        const index = request.html.indexOf("stable");
+        const range = { start: index, end: index + "stable".length };
+        return {
+          diagnostics: [
+            {
+              ruleId: "rule-a",
+              severity: "warning",
+              message: "message one",
+              range,
+            },
+            {
+              ruleId: "rule-b",
+              severity: "warning",
+              message: "message two",
+              range,
+            },
+          ],
+          failures: [],
+        };
+      },
+    });
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [{ adapter: fake.adapter, settings: {}, enabled: true }],
+    });
+    const result = await analyzer.analyze({
+      uri: "file:///workspace/Distinct.vue",
+      filename: "/workspace/Distinct.vue",
+      source: `<template><span id="stable"></span></template>`,
+      signal: new AbortController().signal,
+    });
+    await analyzer.dispose();
+    expect(result.diagnostics.filter((d) => d.code === "rule-a")).toHaveLength(
+      1,
+    );
+    expect(result.diagnostics.filter((d) => d.code === "rule-b")).toHaveLength(
+      1,
+    );
+  });
+
+  it("9: variant evidence is truncated at the limit", async () => {
+    const fake = createFakeAdapter({
+      id: "fake",
+      handler: (request) => {
+        const index = request.html.indexOf("stable");
+        return {
+          diagnostics: [
+            {
+              ruleId: "id-check",
+              severity: "warning",
+              message: "check",
+              range: { start: index, end: index + "stable".length },
+            },
+          ],
+          failures: [],
+        };
+      },
+    });
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [{ adapter: fake.adapter, settings: {}, enabled: true }],
+    });
+    const result = await analyzer.analyze({
+      uri: "file:///workspace/Many.vue",
+      filename: "/workspace/Many.vue",
+      source: `<script setup lang="ts">defineProps<{ a: boolean; b: boolean; c: boolean }>();</script>
+<template><p v-if="a">a</p><p v-if="b">b</p><p v-if="c">c</p><span id="stable"></span></template>`,
+      signal: new AbortController().signal,
+    });
+    await analyzer.dispose();
+    expect(result.variantSummary.emittedCount).toBe(8);
+    const diagnostic = result.diagnostics.find((d) => d.code === "id-check");
+    expect(diagnostic!.evidence.variantCount).toBe(8);
+    expect(diagnostic!.evidence.variantIds).toHaveLength(5);
+    expect(diagnostic!.evidence.truncated).toBe(true);
+  });
+
+  it("14: reconfigure swaps sessions without waiting on the old one's in-flight call, but dispose still waits for it", async () => {
+    const fake = createFakeAdapter({ id: "fake" });
+    const barrier = fake.blockNext();
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [
+        { adapter: fake.adapter, settings: { label: "v1" }, enabled: true },
+      ],
+    });
+    const pending = analyzer.analyze({
+      uri: "file:///workspace/A.vue",
+      filename: "/workspace/A.vue",
+      source: `<template><p>x</p></template>`,
+      signal: new AbortController().signal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const reconfigured = analyzer.reconfigure({
+      adapters: [
+        { adapter: fake.adapter, settings: { label: "v2" }, enabled: true },
+      ],
+    });
+    const raced = await Promise.race([
+      reconfigured.then(() => "reconfigured" as const),
+      timeout(50),
+    ]);
+    expect(raced).toBe("reconfigured");
+    // The old (v1) session's in-flight call is still blocked, so it must not
+    // have been disposed yet even though reconfigure() already returned.
+    expect(fake.disposeCount).toBe(0);
+    barrier.resolve();
+    await pending;
+    await analyzer.dispose();
+    expect(fake.disposeCount).toBe(2); // old (v1) + current (v2)
+  });
+
+  it("17: reconfigure({ invalidateAdapters }) recreates the session and discards its validation cache even when settings are unchanged", async () => {
+    const calls: string[] = [];
+    const fake = createFakeAdapter({
+      id: "fake",
+      handler: (request) => {
+        calls.push(request.virtualFilename);
+        return { diagnostics: [], failures: [] };
+      },
+    });
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [{ adapter: fake.adapter, settings: {}, enabled: true }],
+    });
+    const request = {
+      uri: "file:///workspace/A.vue",
+      filename: "/workspace/A.vue",
+      source: `<template><p>x</p></template>`,
+      signal: new AbortController().signal,
+    };
+    await analyzer.analyze(request);
+    expect(calls).toHaveLength(1);
+    await analyzer.reconfigure({ invalidateAdapters: ["fake"] });
+    await analyzer.analyze({
+      ...request,
+      signal: new AbortController().signal,
+    });
+    await analyzer.dispose();
+    expect(calls).toHaveLength(2); // cache discarded by the forced session recreation
+    expect(fake.disposeCount).toBe(2); // old + current session both disposed by the end
+  });
+
+  it("18: config watch targets are collected from every session, tagged, sorted, deduplicated, and removed when a session is replaced", async () => {
+    const fakeA = createFakeAdapter({ id: "fake-a" });
+    fakeA.setConfigWatchTargets([
+      { absolutePath: "/workspace/b.config", kind: "config" },
+      { absolutePath: "/workspace/shared.dep", kind: "dependency" },
+    ]);
+    const fakeB = createFakeAdapter({ id: "fake-b" });
+    fakeB.setConfigWatchTargets([
+      { absolutePath: "/workspace/a.config", kind: "config" },
+    ]);
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [
+        { adapter: fakeA.adapter, settings: {}, enabled: true },
+        { adapter: fakeB.adapter, settings: {}, enabled: true },
+      ],
+    });
+    const targets = analyzer.getConfigWatchTargets();
+    expect(targets.map((target) => target.absolutePath)).toEqual([
+      "/workspace/a.config",
+      "/workspace/b.config",
+      "/workspace/shared.dep",
+    ]);
+    expect(
+      targets.find((target) => target.absolutePath === "/workspace/a.config")
+        ?.adapterId,
+    ).toBe("fake-b");
+    expect(
+      targets.find((target) => target.absolutePath === "/workspace/b.config")
+        ?.adapterId,
+    ).toBe("fake-a");
+
+    await analyzer.reconfigure({
+      adapters: [{ adapter: fakeB.adapter, settings: {}, enabled: true }],
+    });
+    const afterRemoval = analyzer.getConfigWatchTargets();
+    await analyzer.dispose();
+    expect(afterRemoval.every((target) => target.adapterId !== "fake-a")).toBe(
+      true,
+    );
+  });
+
+  it("ADR-0007: non-JSON-safe adapter settings produce an isolated session-level configuration-error", async () => {
+    const fake = createFakeAdapter({ id: "fake" });
+    const healthy = createFakeAdapter({ id: "healthy" });
+    healthy.enqueue({
+      diagnostics: [{ ruleId: "ok", severity: "info", message: "fine" }],
+      failures: [],
+    });
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [
+        {
+          adapter: fake.adapter,
+          // A function is not JSON-safe (ADR-0007's shallow JSON-safety check).
+          settings: { onDone: () => {} },
+          enabled: true,
+        },
+        { adapter: healthy.adapter, settings: {}, enabled: true },
+      ],
+    });
+    const result = await analyzer.analyze({
+      uri: "file:///workspace/A.vue",
+      filename: "/workspace/A.vue",
+      source: `<template><p>x</p></template>`,
+      signal: new AbortController().signal,
+    });
+    await analyzer.dispose();
+    expect(fake.calls).toHaveLength(0); // createSession is never even attempted
+    expect(
+      result.diagnostics.some(
+        (d) => d.code === "adapter/fake/configuration-error",
+      ),
+    ).toBe(true);
+    // Isolated to that one adapter: the healthy adapter's own result survives.
+    expect(result.diagnostics.some((d) => d.code === "ok")).toBe(true);
   });
 });
+
+function timeout(ms: number): Promise<"timeout"> {
+  return new Promise((resolve) => setTimeout(() => resolve("timeout"), ms));
+}

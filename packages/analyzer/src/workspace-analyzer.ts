@@ -1,25 +1,36 @@
-// Orchestration (analyzer.md §4): run core once, run adapters with bounded
-// concurrency, reverse-map, and merge into one result. Phase 1 scope: no
-// provenance rewrite/suppression (§7) and no two-stage aggregation (§8) — one
-// occurrence maps to one source diagnostic; caching (§10) is not implemented;
-// reconfigure (§11) is a full session rebuild rather than a diffed swap.
+// Orchestration (analyzer.md §4): run core once (cached, §10.1), run
+// adapters with bounded concurrency (each cached per-session, §10.2),
+// reverse-map (§6), normalize by provenance (§7), aggregate across variants
+// (§8), and merge into one result (§9). reconfigure (§11) diffs adapters by
+// settings hash rather than rebuilding every session.
 import { performance } from "node:perf_hooks";
 import {
   generateVariants,
   type HtmlVariant,
-  type MappingEntry,
   type SourceRange,
 } from "vue-html-bridge";
+import { nullLogger } from "@vue-html-bridge/validator-api";
+import { aggregateBySourceIdentity } from "./aggregate.js";
 import {
-  nullLogger,
-  type ValidateHtmlResult,
-} from "@vue-html-bridge/validator-api";
+  approximateGenerateResultBytes,
+  createGenerationCache,
+  generationCacheKey,
+} from "./cache/generation-cache.js";
+import {
+  approximateValidationResultBytes,
+  hashSettings,
+  validationCacheKey,
+} from "./cache/validation-cache.js";
 import {
   adapterFailureToSource,
   coreDiagnosticsToSource,
 } from "./diagnostics.js";
-import { remapDiagnostic } from "./remap.js";
+import { dedupeOccurrences, type DiagnosticOccurrence } from "./occurrence.js";
+import { normalizeOccurrence } from "./provenance-normalizer.js";
+import { remapOccurrence } from "./remap.js";
 import {
+  callSession,
+  createSessionEntry,
   createSessions,
   disposeSessions,
   type AdapterSessionEntry,
@@ -39,6 +50,10 @@ import { buildWorkItems } from "./work-deduplication.js";
 import { runBounded, type BoundedTask } from "./validation-queue.js";
 
 const DEFAULT_MAX_CONCURRENCY = 4;
+const GENERATION_CACHE_OPTIONS = {
+  maxEntries: 500,
+  maxApproximateBytes: 32 * 1024 * 1024,
+};
 
 export async function createWorkspaceAnalyzer(
   options: CreateWorkspaceAnalyzerOptions,
@@ -51,19 +66,44 @@ export async function createWorkspaceAnalyzer(
   let configuredAdapters = options.adapters;
   let entries = await createSessions(configuredAdapters, workspaceRoot, logger);
   let disposed = false;
+  const generationCache = createGenerationCache(GENERATION_CACHE_OPTIONS);
+  let lastEpoch = typeContext?.epoch;
+  const pendingDisposals: Promise<void>[] = [];
 
   async function analyze(request: AnalyzeRequest): Promise<AnalysisResult> {
     const started = performance.now();
     request.signal.throwIfAborted();
 
-    const generated = await generateVariants({
-      filename: request.filename,
+    const epoch = typeContext?.epoch ?? 0;
+    if (epoch !== lastEpoch) {
+      // §10.3: a TypeScript project epoch change invalidates the relevant
+      // (generation) cache layer — stale entries keyed to the old epoch are
+      // simply never looked up again, so a full clear just reclaims memory.
+      generationCache.clear();
+      lastEpoch = epoch;
+    }
+    const genKey = generationCacheKey({
       source: request.source,
-      options: generateOptions,
-      typeContext,
-      signal: request.signal,
+      filename: request.filename,
+      generateOptions,
+      epoch,
     });
-    request.signal.throwIfAborted();
+    let generated = generationCache.get(genKey);
+    if (!generated) {
+      generated = await generateVariants({
+        filename: request.filename,
+        source: request.source,
+        options: generateOptions,
+        typeContext,
+        signal: request.signal,
+      });
+      request.signal.throwIfAborted();
+      generationCache.set(
+        genKey,
+        generated,
+        approximateGenerateResultBytes(generated),
+      );
+    }
 
     const templateFallback: SourceRange = generated.templateRange ?? {
       filename: request.filename,
@@ -113,24 +153,41 @@ export async function createWorkspaceAnalyzer(
       ]),
     );
 
-    const tasks: BoundedTask<(typeof workItems)[number], ValidateHtmlResult>[] =
-      workItems.map((item) => {
-        const entry = entryById.get(item.adapterId)!;
-        return {
-          item,
-          adapterId: item.adapterId,
-          run: (signal) =>
-            entry.session.validate(
-              {
-                html: item.html,
-                documentKind: "fragment",
-                sourceFilename: request.filename,
-                virtualFilename: item.virtualFilename,
-              },
-              signal,
-            ),
-        };
-      });
+    const tasks: BoundedTask<
+      (typeof workItems)[number],
+      Awaited<ReturnType<typeof callSession>>
+    >[] = workItems.map((item) => {
+      const entry = entryById.get(item.adapterId)!;
+      return {
+        item,
+        adapterId: item.adapterId,
+        run: async (signal) => {
+          const cacheKey = validationCacheKey({
+            settingsHash: entry.settingsHash,
+            sourceFilename: request.filename,
+            htmlHash: item.htmlHash,
+          });
+          const cached = entry.validationCache.get(cacheKey);
+          if (cached) return cached;
+          const result = await callSession(
+            entry,
+            {
+              html: item.html,
+              documentKind: "fragment",
+              sourceFilename: request.filename,
+              virtualFilename: item.virtualFilename,
+            },
+            signal,
+          );
+          entry.validationCache.set(
+            cacheKey,
+            result,
+            approximateValidationResultBytes(result),
+          );
+          return result;
+        },
+      };
+    });
 
     const outcomes = await runBounded(
       tasks,
@@ -140,14 +197,15 @@ export async function createWorkspaceAnalyzer(
     );
     request.signal.throwIfAborted();
 
-    const adapterDiagnostics: SourceDiagnostic[] = [];
+    const adapterFailureDiagnostics: SourceDiagnostic[] = [];
+    const occurrences: DiagnosticOccurrence[] = [];
     for (const outcome of outcomes) {
       const { item } = outcome;
       if (outcome.error !== undefined) {
         logger.error("Adapter validate() rejected.", {
           adapterId: item.adapterId,
         });
-        adapterDiagnostics.push(
+        adapterFailureDiagnostics.push(
           adapterFailureToSource(
             item.adapterId,
             {
@@ -162,32 +220,39 @@ export async function createWorkspaceAnalyzer(
       }
       const result = outcome.result!;
       for (const failure of result.failures) {
-        adapterDiagnostics.push(
+        adapterFailureDiagnostics.push(
           adapterFailureToSource(item.adapterId, failure, templateFallback),
         );
       }
       if (result.diagnostics.length === 0) continue;
       const representative = variantById.get(item.representativeVariantId);
-      const map: readonly MappingEntry[] = representative?.map ?? [];
-      for (const diagnostic of result.diagnostics) {
-        adapterDiagnostics.push(
-          remapDiagnostic(diagnostic, {
+      const map = representative?.map ?? [];
+      for (const memberVariantId of item.memberVariantIds) {
+        const variant = variantById.get(memberVariantId);
+        for (const diagnostic of result.diagnostics) {
+          occurrences.push({
             adapterId: item.adapterId,
-            map,
-            templateFallback,
-            html: item.html,
+            variantId: memberVariantId,
+            variantDecisions: variant?.decisions ?? [],
             virtualFilename: item.virtualFilename,
-            memberVariantIds: item.memberVariantIds,
-            representativeDecisions: representative?.decisions ?? [],
-          }),
-        );
+            map,
+            diagnostic,
+          });
+        }
       }
     }
+
+    const normalized = dedupeOccurrences(occurrences)
+      .map((occurrence) => remapOccurrence(occurrence, templateFallback))
+      .map(normalizeOccurrence)
+      .filter((occurrence) => occurrence !== undefined);
+    const validatorDiagnostics = aggregateBySourceIdentity(normalized);
 
     const diagnostics = sortDiagnostics([
       ...coreDiagnostics,
       ...sessionFailureDiagnostics,
-      ...adapterDiagnostics,
+      ...adapterFailureDiagnostics,
+      ...validatorDiagnostics,
     ]);
 
     return {
@@ -209,21 +274,65 @@ export async function createWorkspaceAnalyzer(
   ): Promise<void> {
     if (reconfigureOptions.generateOptions !== undefined) {
       generateOptions = reconfigureOptions.generateOptions;
+      generationCache.clear();
     }
     if (reconfigureOptions.maxConcurrency !== undefined) {
       maxConcurrency = reconfigureOptions.maxConcurrency;
     }
-    const needsSessionRebuild =
-      reconfigureOptions.adapters !== undefined ||
-      (reconfigureOptions.invalidateAdapters?.length ?? 0) > 0;
-    if (!needsSessionRebuild) return;
 
-    if (reconfigureOptions.adapters !== undefined) {
-      configuredAdapters = reconfigureOptions.adapters;
+    const nextConfigured =
+      reconfigureOptions.adapters !== undefined
+        ? reconfigureOptions.adapters
+        : configuredAdapters;
+    const invalidate = new Set(reconfigureOptions.invalidateAdapters ?? []);
+    const previousById = new Map(
+      entries.map((entry) => [entry.adapterId, entry]),
+    );
+    const nextEnabled = nextConfigured.filter((entry) => entry.enabled);
+    const seenAdapterIds = new Set<string>();
+
+    const nextEntries: AdapterSessionEntry[] = [];
+    const toDispose: AdapterSessionEntry[] = [];
+    for (const configured of nextEnabled) {
+      const adapterId = configured.adapter.id;
+      seenAdapterIds.add(adapterId);
+      const previous = previousById.get(adapterId);
+      const settingsHash = hashSettings(configured.settings);
+      const needsRecreate =
+        !previous ||
+        previous.settingsHash !== settingsHash ||
+        invalidate.has(adapterId) ||
+        // §9.2: a recoverable session failure is retried on the next reconfigure.
+        (previous.sessionFailure?.recoverable ?? false);
+      if (!needsRecreate) {
+        nextEntries.push(previous);
+        continue;
+      }
+      if (previous) toDispose.push(previous);
+      nextEntries.push(
+        await createSessionEntry(configured, workspaceRoot, logger),
+      );
     }
-    const previousEntries = entries;
-    entries = await createSessions(configuredAdapters, workspaceRoot, logger);
-    await disposeSessions(previousEntries);
+    for (const previous of entries) {
+      if (!seenAdapterIds.has(previous.adapterId)) toDispose.push(previous);
+    }
+
+    configuredAdapters = nextConfigured;
+    entries = nextEntries;
+    // §11 steps 2-3: the swap above is synchronous, so subsequent analyze()
+    // calls only ever see the new sessions immediately. Draining and
+    // disposing the replaced ones can take as long as their slowest
+    // in-flight validate() call, so it happens in the background — awaiting
+    // it here would make reconfigure() hang on a slow/stuck adapter call.
+    // dispose() (full workspace shutdown) still waits for this to finish.
+    if (toDispose.length > 0) {
+      const disposal = disposeSessions(toDispose).catch((error: unknown) => {
+        logger.error("Error disposing a replaced adapter session.", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+      pendingDisposals.push(disposal);
+    }
   }
 
   function getConfigWatchTargets(): readonly AnalyzerConfigWatchTarget[] {
@@ -255,7 +364,7 @@ export async function createWorkspaceAnalyzer(
   async function dispose(): Promise<void> {
     if (disposed) return;
     disposed = true;
-    await disposeSessions(entries);
+    await Promise.all([...pendingDisposals, disposeSessions(entries)]);
   }
 
   return { analyze, reconfigure, getConfigWatchTargets, dispose };

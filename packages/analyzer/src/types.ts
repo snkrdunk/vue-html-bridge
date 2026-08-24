@@ -102,7 +102,15 @@ export interface DiagnosticEvidence {
     range?: GeneratedRange;
   };
   truncated: boolean;
-  originalValidatorMessage?: string;
+  /**
+   * Set when this diagnostic was rewritten from one or more raw validator
+   * diagnostics via provenance (analyzer.md §7). Plural because §8.1/§7.1
+   * merge every raw diagnostic that rewrites to the same bridge diagnostic
+   * (e.g. the same sentinel hit by several variants) into one entry, keeping
+   * each original message as evidence — ordered by ruleId/message, truncated
+   * at 5, same as `variantIds`.
+   */
+  originalValidatorMessages?: readonly string[];
   /** Set when a fallback source position was used (analyzer.md §6.2). */
   mappingFallback?: boolean;
 }

@@ -1,0 +1,65 @@
+// Core result cache (analyzer.md §10.1): keyed by source hash + filename +
+// core/compiler versions + normalized GenerateOptions + TS project epoch.
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
+import type { GenerateOptions, GenerateResult } from "vue-html-bridge";
+import { BoundedLruCache, type BoundedCacheOptions } from "./lru.js";
+
+const require = createRequire(import.meta.url);
+// Read once: the running core package's own version stands in for
+// "core/compiler versions" — its own dependency versions are covered
+// transitively by core's semver discipline.
+const CORE_VERSION = (
+  require("vue-html-bridge/package.json") as { version: string }
+).version;
+
+export interface GenerationCacheKeyInput {
+  source: string;
+  filename: string;
+  generateOptions: GenerateOptions | undefined;
+  epoch: number;
+}
+
+export function generationCacheKey(input: GenerationCacheKeyInput): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        sourceHash: hashContent(input.source),
+        filename: input.filename,
+        coreVersion: CORE_VERSION,
+        generateOptions: normalizeGenerateOptions(input.generateOptions),
+        epoch: input.epoch,
+      }),
+    )
+    .digest("hex");
+}
+
+function normalizeGenerateOptions(
+  options: GenerateOptions | undefined,
+): unknown {
+  if (!options) return null;
+  return {
+    warnVariantCount: options.warnVariantCount ?? null,
+    customElements: [...(options.customElements ?? [])].sort(),
+  };
+}
+
+function hashContent(source: string): string {
+  return createHash("sha256").update(source, "utf8").digest("hex");
+}
+
+export function approximateGenerateResultBytes(result: GenerateResult): number {
+  let total = 0;
+  for (const variant of result.variants) {
+    total += variant.html.length;
+    total += variant.map.length * 64;
+  }
+  total += result.diagnostics.length * 128;
+  return total;
+}
+
+export function createGenerationCache(
+  options: BoundedCacheOptions,
+): BoundedLruCache<GenerateResult> {
+  return new BoundedLruCache<GenerateResult>(options);
+}
