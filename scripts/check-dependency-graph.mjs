@@ -8,10 +8,12 @@ import { fileURLToPath } from "node:url";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packagesDir = join(repoRoot, "packages");
 
-// The Stage A subset of monorepo.md §4.1: `@vue-html-bridge/adapter-loader` is
-// scaffolded in Phase 3 (implementation-plan.md §6 task 3), so its edges to
-// language-server and cli are intentionally absent here. Update this map when
-// a new package is scaffolded or its declared dependencies change.
+// `@vue-html-bridge/adapter-loader` is implemented in Phase 3
+// (implementation-plan.md §6 task 3; adapter-loader.md); language-server and
+// cli's dependency edges *onto* it are intentionally still absent here until
+// each host is wired up to use it (separate, later Phase 3 work). Update
+// this map when a new package is scaffolded or its declared dependencies
+// change.
 const EXPECTED_INTERNAL_DEPS = {
   "vue-html-bridge": [],
   "@vue-html-bridge/validator-api": [],
@@ -22,6 +24,14 @@ const EXPECTED_INTERNAL_DEPS = {
   // pattern as adapter-markuplint's devDependency-only edge onto
   // adapter-testkit below.
   "@vue-html-bridge/settings": ["vue-html-bridge"],
+  // "@vue-html-bridge/settings" here is likewise a devDependency-only edge
+  // (adapter-loader.md §2, §6 item 7): a contract test type-checks this
+  // package's structurally declared `ResolvedValidatorSetting` against
+  // settings' real one via a type-only import, erased at build time.
+  "@vue-html-bridge/adapter-loader": [
+    "@vue-html-bridge/settings",
+    "@vue-html-bridge/validator-api",
+  ],
   "@vue-html-bridge/analyzer": [
     "vue-html-bridge",
     "@vue-html-bridge/adapter-testkit",
