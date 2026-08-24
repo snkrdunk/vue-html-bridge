@@ -60,15 +60,40 @@ export function classifyApplicability(
 }
 
 /**
- * Builds the "generated-html safety overlay" config (adapter-markuplint.md §5):
- * `markuplint:recommended-static-html` as the baseline extends target, plus the
- * manifest's disabled rules, plus any `profileRuleOverrides` — which apply last,
- * so they can re-enable a rule the overlay disabled. Passed via MLEngine's
- * `config` option (never `configFile`): a discovered/explicit user config,
- * passed alongside via `configFile`, is merged in *before* this object in
- * Markuplint's own resolution order, giving this overlay the correct priority
- * (§5: "Markuplint defaults < discovered/user config < generated-html safety
- * overlay < settings.profileRuleOverrides").
+ * The profile's baseline extends target (adapter-markuplint.md §5's "Phase 0
+ * outcome"), on its own — deliberately *not* combined with
+ * `generatedHtmlProfileOverlay`'s disables into one config object. Passed via
+ * MLEngine's `defaultConfig` option (never `configFile`/`config`): with
+ * `noSearchConfig: true`, `defaultConfig` becomes the *lowest*-priority
+ * config source in Markuplint's own merge order
+ * (`defaultConfig < configFile < config`), matching §5's "Markuplint
+ * defaults" tier. `markuplint:recommended-static-html` itself sets some
+ * rules (e.g. `id-duplication`, inherited from its own `html-standard`/`a11y`
+ * extends) that a real project config may legitimately want to turn off; if
+ * this baseline were folded into the `config` overlay object instead (as an
+ * earlier version of this adapter did), Markuplint's merge order would put
+ * it *above* a discovered/explicit user config passed via `configFile`,
+ * silently overriding a user's own explicit disable back on — the opposite
+ * of §5's documented 4-tier priority. Keeping the baseline in its own,
+ * lower-priority `defaultConfig` slot avoids that.
+ */
+export function generatedHtmlProfileBaseline(): Config {
+  return { extends: ["markuplint:recommended-static-html"] };
+}
+
+/**
+ * Builds the "generated-html safety overlay" config (adapter-markuplint.md
+ * §5): the manifest's disabled rules, plus any `profileRuleOverrides` —
+ * which apply last, so they can re-enable a rule the overlay disabled.
+ * Passed via MLEngine's `config` option (never `configFile`): a
+ * discovered/explicit user config, passed alongside via `configFile`, is
+ * merged in *before* this object in Markuplint's own resolution order,
+ * giving this overlay the correct priority (§5: "Markuplint defaults <
+ * discovered/user config < generated-html safety overlay <
+ * settings.profileRuleOverrides"). Does *not* include the baseline
+ * `extends` target — see `generatedHtmlProfileBaseline`'s doc comment for
+ * why that must go through `defaultConfig` instead, at *lower* priority than
+ * the user's own config.
  */
 export function generatedHtmlProfileOverlay(
   profileRuleOverrides: Readonly<Record<string, boolean>> = {},
@@ -76,8 +101,5 @@ export function generatedHtmlProfileOverlay(
   const rules: Record<string, boolean> = {};
   for (const ruleId of DISABLED_RULE_IDS) rules[ruleId] = false;
   Object.assign(rules, profileRuleOverrides);
-  return {
-    extends: ["markuplint:recommended-static-html"],
-    rules,
-  };
+  return { rules };
 }

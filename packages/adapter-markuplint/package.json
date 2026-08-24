@@ -29,6 +29,7 @@
   "devDependencies": {
     "@types/node": "26.2.0",
     "@vue-html-bridge/adapter-testkit": "workspace:*",
+    "cosmiconfig": "9.0.1",
     "markuplint": "4.18.3",
     "vitest": "4.1.11"
   }
