@@ -9,11 +9,10 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packagesDir = join(repoRoot, "packages");
 
 // `@vue-html-bridge/adapter-loader` is implemented in Phase 3
-// (implementation-plan.md §6 task 3; adapter-loader.md); language-server and
-// cli's dependency edges *onto* it are intentionally still absent here until
-// each host is wired up to use it (separate, later Phase 3 work). Update
-// this map when a new package is scaffolded or its declared dependencies
-// change.
+// (implementation-plan.md §6 task 3; adapter-loader.md). cli's dependency
+// edge onto it is intentionally still absent here until the CLI is wired up
+// to use it (separate, later Phase 3 work). Update this map when a new
+// package is scaffolded or its declared dependencies change.
 const EXPECTED_INTERNAL_DEPS = {
   "vue-html-bridge": [],
   "@vue-html-bridge/validator-api": [],
@@ -44,6 +43,7 @@ const EXPECTED_INTERNAL_DEPS = {
   "@vue-html-bridge/adapter-testkit": ["@vue-html-bridge/validator-api"],
   "@vue-html-bridge/language-server": [
     "@vue-html-bridge/analyzer",
+    "@vue-html-bridge/adapter-loader",
     "@vue-html-bridge/adapter-markuplint",
     "@vue-html-bridge/adapter-testkit",
     "@vue-html-bridge/validator-api",

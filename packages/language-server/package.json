@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@vue-html-bridge/analyzer": "workspace:*",
+    "@vue-html-bridge/adapter-loader": "workspace:*",
     "@vue-html-bridge/adapter-markuplint": "workspace:*",
     "@vue-html-bridge/validator-api": "workspace:*",
     "@vue-html-bridge/settings": "workspace:*",

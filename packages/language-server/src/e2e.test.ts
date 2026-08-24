@@ -706,6 +706,44 @@ describe("vertical-slice E2E: settings/multi-root/trust/config-watching (languag
     );
     expect(hasIdDuplication(afterConfig.diagnostics)).toBe(false);
   });
+
+  it("an unresolvable external adapter fails in isolation, with the built-in adapter still running (adapter-loader.md §4, §10.2)", async () => {
+    const { client, waitForNotification, notifications } = harness();
+    await initialize(client, "file:///workspace", {
+      initializationOptions: {
+        workspaceTrusted: true,
+        settings: {
+          externalAdapters: "trusted-workspace-only",
+          validators: [
+            { adapter: "markuplint", enabled: true },
+            {
+              adapter: "vhb-e2e-test-nonexistent-external-adapter",
+              enabled: true,
+            },
+          ],
+        },
+      },
+    });
+
+    const uri = "file:///workspace/Dup.vue";
+    await didOpen(client, uri, DUPLICATE_ID_TEMPLATE);
+
+    // The built-in adapter is unaffected by the other entry's load failure.
+    const published = await waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) => params.uri === uri,
+    );
+    expect(hasIdDuplication(published.diagnostics)).toBe(true);
+
+    const notice = notifications.find(
+      (n) =>
+        n.method === "window/showMessage" &&
+        (n.params as { message: string }).message.includes(
+          "vhb-e2e-test-nonexistent-external-adapter",
+        ),
+    );
+    expect(notice).toBeDefined();
+  });
 });
 
 function offsetFromPosition(

@@ -1,6 +1,10 @@
 // One workspace folder's session (language-server.md §9.1): owns its
 // analyzer, TypeAnalysisContext, resolved settings, and the config
 // watch-target snapshot used for diffing registrations (§9.3).
+import type {
+  AdapterLoadFailure,
+  AdapterModuleResolver,
+} from "@vue-html-bridge/adapter-loader";
 import {
   createTypeAnalysisContext,
   createWorkspaceAnalyzer,
@@ -14,7 +18,7 @@ import {
   decomposeSettings,
   type ResolvedVueHtmlBridgeSettings,
 } from "@vue-html-bridge/settings";
-import { buildConfiguredAdapters } from "../adapters/trust.js";
+import { loadAdaptersForSession } from "../adapters/loading.js";
 
 export interface WorkspaceSession {
   readonly folderRoot: string;
@@ -39,17 +43,25 @@ export async function createWorkspaceSession(options: {
   folderRoot: string;
   settings: ResolvedVueHtmlBridgeSettings;
   workspaceTrusted: boolean;
+  moduleResolver?: AdapterModuleResolver;
   logger?: AnalyzerLogger;
+  /** §10.2: structured adapter-load failures for the caller to turn into per-workspace notices. */
+  onAdapterLoadFailures?: (failures: readonly AdapterLoadFailure[]) => void;
 }): Promise<WorkspaceSession> {
   const typeContext = createTypeAnalysisContext();
   const decomposed = decomposeSettings(options.settings);
-  const initialAdapters = buildConfiguredAdapters(
-    decomposed.validators,
-    options.workspaceTrusted,
-  );
+  const initialLoad = await loadAdaptersForSession({
+    validators: decomposed.validators,
+    workspaceRoot: options.folderRoot,
+    workspaceTrusted: options.workspaceTrusted,
+    externalAdapters: decomposed.host.externalAdapters,
+    moduleResolver: options.moduleResolver,
+    logger: options.logger,
+  });
+  options.onAdapterLoadFailures?.(initialLoad.failures);
   const analyzer = await createWorkspaceAnalyzer({
     workspaceRoot: options.folderRoot,
-    adapters: initialAdapters,
+    adapters: initialLoad.adapters,
     generateOptions: decomposed.generateOptions,
     maxConcurrency: decomposed.analyzer.maxConcurrency,
     typeContext,
@@ -62,22 +74,27 @@ export async function createWorkspaceSession(options: {
     typeContext,
     settings: options.settings,
     workspaceTrusted: options.workspaceTrusted,
-    configuredAdapters: initialAdapters,
+    configuredAdapters: initialLoad.adapters,
     lastWatchTargets: [],
     async reconfigure(nextSettings, reconfigureOptions) {
       const nextDecomposed = decomposeSettings(nextSettings);
-      const nextAdapters = buildConfiguredAdapters(
-        nextDecomposed.validators,
-        session.workspaceTrusted,
-      );
+      const nextLoad = await loadAdaptersForSession({
+        validators: nextDecomposed.validators,
+        workspaceRoot: options.folderRoot,
+        workspaceTrusted: session.workspaceTrusted,
+        externalAdapters: nextDecomposed.host.externalAdapters,
+        moduleResolver: options.moduleResolver,
+        logger: options.logger,
+      });
+      options.onAdapterLoadFailures?.(nextLoad.failures);
       await analyzer.reconfigure({
-        adapters: nextAdapters,
+        adapters: nextLoad.adapters,
         generateOptions: nextDecomposed.generateOptions,
         maxConcurrency: nextDecomposed.analyzer.maxConcurrency,
         invalidateAdapters: reconfigureOptions?.invalidateAdapters,
       });
       session.settings = nextSettings;
-      session.configuredAdapters = nextAdapters;
+      session.configuredAdapters = nextLoad.adapters;
     },
     async dispose() {
       await analyzer.dispose();

@@ -152,6 +152,9 @@ importers:
 
   packages/language-server:
     dependencies:
+      '@vue-html-bridge/adapter-loader':
+        specifier: workspace:*
+        version: link:../adapter-loader
       '@vue-html-bridge/adapter-markuplint':
         specifier: workspace:*
         version: link:../adapter-markuplint

@@ -3,6 +3,10 @@
 // restricted default session for a single file outside any folder.
 import { dirname } from "node:path";
 import { URI } from "vscode-uri";
+import type {
+  AdapterLoadFailure,
+  AdapterModuleResolver,
+} from "@vue-html-bridge/adapter-loader";
 import type { AnalyzerLogger } from "@vue-html-bridge/analyzer";
 import {
   resolveSettings,
@@ -13,6 +17,12 @@ import { createWorkspaceSession, type WorkspaceSession } from "./session.js";
 export interface WorkspaceManagerOptions {
   logger?: AnalyzerLogger;
   workspaceTrusted: boolean;
+  moduleResolver?: AdapterModuleResolver;
+  /** §10.2: structured adapter-load failures for one folder, for the caller to turn into a per-workspace notice. */
+  onAdapterLoadFailures?: (
+    folderRoot: string,
+    failures: readonly AdapterLoadFailure[],
+  ) => void;
   /** Resolves settings for one real workspace folder (§9.2). */
   resolveSettingsForFolder: (
     folderRoot: string,
@@ -56,7 +66,10 @@ export function createWorkspaceManager(
       folderRoot: root,
       settings,
       workspaceTrusted: options.workspaceTrusted,
+      moduleResolver: options.moduleResolver,
       logger: options.logger,
+      onAdapterLoadFailures: (failures) =>
+        options.onAdapterLoadFailures?.(root, failures),
     });
     folders.set(key, session);
     return session;
@@ -100,7 +113,10 @@ export function createWorkspaceManager(
       folderRoot: directory,
       settings,
       workspaceTrusted: false,
+      moduleResolver: options.moduleResolver,
       logger: options.logger,
+      onAdapterLoadFailures: (failures) =>
+        options.onAdapterLoadFailures?.(directory, failures),
     });
     restricted.set(directory, session);
     return session;

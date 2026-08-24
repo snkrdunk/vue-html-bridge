@@ -1,9 +1,7 @@
-// Server wiring (language-server.md §4, §6, §7.3, §8, §9, §12): debounce,
-// didSave, hover, session-failure notice dedup, graceful shutdown,
-// settings resolution, multi-root workspace management, config-file
-// watching, and untrusted-workspace handling for the built-in adapter.
-// External-adapter loading (§10.2) is not wired in yet — that lands once
-// @vue-html-bridge/adapter-loader is integrated as a follow-up.
+// Server wiring (language-server.md §4, §6, §7.3, §8, §9, §10, §12):
+// debounce, didSave, hover, session-failure notice dedup, graceful
+// shutdown, settings resolution, multi-root workspace management,
+// config-file watching, and built-in/external adapter trust and loading.
 import { relative } from "node:path";
 import { minimatch } from "minimatch";
 import {
@@ -25,6 +23,10 @@ import {
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { URI } from "vscode-uri";
+import type {
+  AdapterLoadFailure,
+  AdapterModuleResolver,
+} from "@vue-html-bridge/adapter-loader";
 import type {
   SourceDiagnostic,
   WorkspaceAnalyzer,
@@ -69,6 +71,8 @@ export interface VueHtmlBridgeInitializationOptions {
 export interface StartLanguageServerOptions {
   connection: Connection;
   logger?: ServerLogger;
+  /** §10.2: passed through to @vue-html-bridge/adapter-loader for external-adapter resolution; defaults to real workspace Node resolution. */
+  moduleResolver?: AdapterModuleResolver;
   /**
    * Overrides how the workspace analyzer is built for a given workspace
    * root, entirely bypassing settings resolution/multi-root/config
@@ -154,6 +158,9 @@ export function startLanguageServer(
       };
       manager = createWorkspaceManager({
         workspaceTrusted,
+        moduleResolver: options.moduleResolver,
+        onAdapterLoadFailures: (folderRoot, failures) =>
+          reportAdapterLoadFailuresOnce(folderRoot, failures),
         resolveSettingsForFolder: async (folderRoot) => {
           const resolved = await resolveWorkspaceSettings({
             workspaceRoot: folderRoot,
@@ -483,6 +490,22 @@ export function startLanguageServer(
         type:
           issue.severity === "error" ? MessageType.Error : MessageType.Warning,
         message: issue.message,
+      });
+    }
+  }
+
+  /** §10.2: one notice per workspace per adapter-load failure, deduplicated by the loader's `dedupeKey`; retried on the next reconfigure (settings change or config-file watch). */
+  function reportAdapterLoadFailuresOnce(
+    folderRoot: string,
+    failures: readonly AdapterLoadFailure[],
+  ): void {
+    for (const failure of failures) {
+      const key = `${folderRoot}\0adapter-load\0${failure.dedupeKey}`;
+      if (notifiedSessionFailures.has(key)) continue;
+      notifiedSessionFailures.add(key);
+      void connection.sendNotification(ShowMessageNotification.type, {
+        type: MessageType.Warning,
+        message: failure.message,
       });
     }
   }
