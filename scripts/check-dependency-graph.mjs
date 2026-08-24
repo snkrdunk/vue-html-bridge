@@ -49,12 +49,18 @@ const EXPECTED_INTERNAL_DEPS = {
   // "@vue-html-bridge/adapter-testkit" here is a devDependency-only edge (the
   // same pattern as adapter-markuplint's and language-server's): the fake
   // adapter and shared fixtures are used only by this package's own test
-  // suite, never at runtime.
+  // suite, never at runtime. "@vue-html-bridge/language-server" is likewise
+  // devDependency-only: the CLI/LSP parity E2E test (cli.md §9 item 14;
+  // implementation-plan.md §6 task 7's release checklist) drives the real
+  // language server in-process alongside the real CLI to prove both hosts
+  // report identical diagnostics for the same fixture under equalized
+  // settings/trust — nothing in the published CLI depends on it.
   "@vue-html-bridge/cli": [
     "@vue-html-bridge/adapter-loader",
     "@vue-html-bridge/adapter-markuplint",
     "@vue-html-bridge/adapter-testkit",
     "@vue-html-bridge/analyzer",
+    "@vue-html-bridge/language-server",
     "@vue-html-bridge/settings",
     "@vue-html-bridge/validator-api",
   ],
