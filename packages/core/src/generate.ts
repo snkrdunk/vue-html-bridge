@@ -865,12 +865,7 @@ class Renderer {
         value: dummyValue("", name),
         nameRange: this.sourceRange(prop.arg.loc),
         valueRange: sourceRange,
-        provenance: {
-          kind: "sentinel",
-          sourceRange,
-          reason: "unresolved-expression",
-          originalType: this.expressionType(exp.content, scope),
-        },
+        provenance: this.sentinelProvenance(exp.content, sourceRange, scope),
       },
     ];
   }
@@ -1082,16 +1077,42 @@ class Renderer {
     return { kind: "source-literal", sourceRange };
   }
 
-  private expressionType(
+  /**
+   * Provenance for a value we could not evaluate to a known JS value at all
+   * (core.md §5.4). Distinguishes "this is a single bound symbol whose type
+   * is just too broad to be finite" (non-finite-type, e.g. `pressed: string`)
+   * from "this could not be resolved at all" (unresolved-expression, e.g. an
+   * undeclared identifier or a compound expression) — never from the
+   * expression's syntactic shape alone, so a symbol combined with anything
+   * else (an operator, a second identifier) is conservatively the latter.
+   */
+  private sentinelProvenance(
     expression: string,
+    sourceRange: SourceRange,
     scope: readonly ForScope[],
-  ): string | undefined {
-    for (const path of referencedPaths(expression)) {
-      if (isShadowed(path, scope)) continue;
-      const binding = this.options.bindings.get(path);
-      if (binding) return binding.domain.typeName;
+  ): GeneratedValueProvenance {
+    const paths = referencedPaths(expression);
+    const [only] = paths;
+    if (
+      only &&
+      paths.length === 1 &&
+      !isShadowed(only, scope) &&
+      normalizeExpression(expression) === normalizeExpression(only)
+    ) {
+      const binding = this.options.bindings.get(only);
+      if (
+        binding &&
+        ["string", "number", "unknown"].includes(binding.domain.kind)
+      ) {
+        return {
+          kind: "sentinel",
+          sourceRange,
+          reason: "non-finite-type",
+          originalType: binding.domain.typeName,
+        };
+      }
     }
-    return undefined;
+    return { kind: "sentinel", sourceRange, reason: "unresolved-expression" };
   }
 
   private addDiagnostic(

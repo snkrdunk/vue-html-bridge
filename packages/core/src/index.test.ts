@@ -244,7 +244,11 @@ defineProps<{ loggedIn: boolean }>();
           variant.html.slice(entry.generated.start, entry.generated.end) ===
             "dummy-string",
       )?.provenance,
-    ).toMatchObject({ kind: "sentinel", originalType: "string" });
+    ).toMatchObject({
+      kind: "sentinel",
+      reason: "non-finite-type",
+      originalType: "string",
+    });
     expect(
       variant.map.find(
         (entry) =>
@@ -253,6 +257,18 @@ defineProps<{ loggedIn: boolean }>();
             "onclick",
       )?.provenance,
     ).toMatchObject({ kind: "synthetic", transformation: "vue-event" });
+  });
+
+  it("classifies a truly unresolvable dynamic attribute as unresolved-expression, not non-finite-type", async () => {
+    const source = `<template><button :aria-pressed="undeclaredGlobal"></button></template>`;
+    const result = await generateVariants({
+      filename: "/p/Unresolved.vue",
+      source,
+    });
+    const variant = result.variants[0]!;
+    expect(
+      variant.map.find((entry) => entry.kind === "attribute-value")?.provenance,
+    ).toMatchObject({ kind: "sentinel", reason: "unresolved-expression" });
   });
 
   it("serializes to one line, escapes attribute newlines and strips comments", async () => {
