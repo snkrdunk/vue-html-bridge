@@ -9,6 +9,7 @@
 // that changes settings without recreation.
 import type { ValidateHtmlResult } from "@vue-html-bridge/validator-api";
 import { stableHash } from "../occurrence.js";
+import { normalizeFilenameForCacheKey } from "./filename-key.js";
 import { BoundedLruCache, type BoundedCacheOptions } from "./lru.js";
 
 export interface ValidationCacheKeyInput {
@@ -18,7 +19,7 @@ export interface ValidationCacheKeyInput {
 }
 
 export function validationCacheKey(input: ValidationCacheKeyInput): string {
-  return `${input.settingsHash}:${input.sourceFilename}:${input.htmlHash}`;
+  return `${input.settingsHash}:${normalizeFilenameForCacheKey(input.sourceFilename)}:${input.htmlHash}`;
 }
 
 export function hashSettings(settings: unknown): string {

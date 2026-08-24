@@ -25,6 +25,12 @@ describe("generationCacheKey (analyzer.md §10.1)", () => {
     );
   });
 
+  it("is the same for a Windows-style backslash path and its forward-slash equivalent", () => {
+    expect(
+      generationCacheKey({ ...BASE, filename: "C:\\workspace\\A.vue" }),
+    ).toBe(generationCacheKey({ ...BASE, filename: "C:/workspace/A.vue" }));
+  });
+
   it("changes when the TypeScript project epoch changes", () => {
     expect(generationCacheKey(BASE)).not.toBe(
       generationCacheKey({ ...BASE, epoch: 1 }),

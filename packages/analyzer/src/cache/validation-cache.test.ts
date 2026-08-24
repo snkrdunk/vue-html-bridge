@@ -30,4 +30,13 @@ describe("validation cache key (analyzer.md §10.2)", () => {
     expect(validationCacheKey({ ...base, htmlHash: "h2" })).not.toBe(key);
     expect(validationCacheKey({ ...base })).toBe(key);
   });
+
+  it("is the same for a Windows-style backslash path and its forward-slash equivalent", () => {
+    const base = { settingsHash: "s1", htmlHash: "h1" };
+    expect(
+      validationCacheKey({ ...base, sourceFilename: "C:\\workspace\\A.vue" }),
+    ).toBe(
+      validationCacheKey({ ...base, sourceFilename: "C:/workspace/A.vue" }),
+    );
+  });
 });

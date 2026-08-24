@@ -1,8 +1,13 @@
 // Core result cache (analyzer.md §10.1): keyed by source hash + filename +
 // core/compiler versions + normalized GenerateOptions + TS project epoch.
+// A cache hit is trusted on the key alone — the cached GenerateResult is
+// never re-compared against a freshly computed one — so a hash collision
+// would silently serve a stale/wrong result. This is a documented reliance
+// on SHA-256 being collision-resistant, not an oversight.
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import type { GenerateOptions, GenerateResult } from "vue-html-bridge";
+import { normalizeFilenameForCacheKey } from "./filename-key.js";
 import { BoundedLruCache, type BoundedCacheOptions } from "./lru.js";
 
 const require = createRequire(import.meta.url);
@@ -25,7 +30,7 @@ export function generationCacheKey(input: GenerationCacheKeyInput): string {
     .update(
       JSON.stringify({
         sourceHash: hashContent(input.source),
-        filename: input.filename,
+        filename: normalizeFilenameForCacheKey(input.filename),
         coreVersion: CORE_VERSION,
         generateOptions: normalizeGenerateOptions(input.generateOptions),
         epoch: input.epoch,

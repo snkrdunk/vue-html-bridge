@@ -468,11 +468,12 @@ A source being edited is identified by content hash, not by mtime. "TypeScript p
 Key:
 
 ```text
-adapter id/version
-+ normalized settings hash
+normalized settings hash
 + sourceFilename
 + HTML content hash
 ```
+
+**Resolved (Phase 2 Track 2):** validator-api v1 exposes no adapter version field, and the cache instance itself already belongs to one specific session (a fresh instance is created per session; see `sessions.ts`). Every entry in one instance therefore already shares one adapter identity and one settings value by construction — recreating the session (on a settings change, `invalidateAdapters`, or dispose) already discards the whole cache, so a separate "adapter id/version" key component would be redundant with the session boundary itself. No SPI field was added for this. `settingsHash` is still folded into the key, matching this section literally, in case a session is ever reused across a settings change without recreation.
 
 The cache belongs to a session (session-scoped). Config discovery and overrides are resolved internally by the adapter, starting from `sourceFilename`. Invalidation happens through both candidate patterns and concrete targets:
 
