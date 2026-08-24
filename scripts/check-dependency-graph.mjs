@@ -15,7 +15,13 @@ const packagesDir = join(repoRoot, "packages");
 const EXPECTED_INTERNAL_DEPS = {
   "vue-html-bridge": [],
   "@vue-html-bridge/validator-api": [],
-  "@vue-html-bridge/settings": [],
+  // "vue-html-bridge" here is a devDependency-only edge (settings.md §2, §8
+  // item 8): a contract test type-checks this package's structurally
+  // declared `GenerateOptions` against core's real one via a type-only
+  // import, erased at build time. It adds no runtime dependency — the same
+  // pattern as adapter-markuplint's devDependency-only edge onto
+  // adapter-testkit below.
+  "@vue-html-bridge/settings": ["vue-html-bridge"],
   "@vue-html-bridge/analyzer": [
     "vue-html-bridge",
     "@vue-html-bridge/adapter-testkit",
