@@ -13,7 +13,8 @@
   },
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "fixtures/rule-manifest.v1.json"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
