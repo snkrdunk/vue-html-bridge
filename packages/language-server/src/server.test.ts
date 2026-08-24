@@ -51,6 +51,25 @@ function createFakeConnection() {
       handlers.hover = handler;
       return { dispose() {} };
     },
+    onDidChangeConfiguration: (handler: Handler) => {
+      handlers.didChangeConfiguration = handler;
+      return { dispose() {} };
+    },
+    onDidChangeWatchedFiles: (handler: Handler) => {
+      handlers.didChangeWatchedFiles = handler;
+      return { dispose() {} };
+    },
+    workspace: {
+      getConfiguration: vi.fn(async () => ({})),
+      onDidChangeWorkspaceFolders: (handler: Handler) => {
+        handlers.didChangeWorkspaceFolders = handler;
+        return { dispose() {} };
+      },
+      getWorkspaceFolders: async () => null,
+    },
+    client: {
+      register: vi.fn(async () => ({ dispose() {} })),
+    },
     sendNotification: vi.fn(
       async (type: { method: string }, params: unknown) => {
         sentNotifications.push({ method: type.method, params });

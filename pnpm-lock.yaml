@@ -44,6 +44,12 @@ importers:
       '@vue-html-bridge/validator-api':
         specifier: workspace:*
         version: link:../validator-api
+      cosmiconfig:
+        specifier: 9.0.1
+        version: 9.0.1(typescript@6.0.3)
+      jsonc:
+        specifier: 2.0.0
+        version: 2.0.0
     devDependencies:
       '@types/node':
         specifier: 26.2.0
@@ -51,9 +57,6 @@ importers:
       '@vue-html-bridge/adapter-testkit':
         specifier: workspace:*
         version: link:../adapter-testkit
-      cosmiconfig:
-        specifier: 9.0.1
-        version: 9.0.1(typescript@6.0.3)
       markuplint:
         specifier: 4.18.3
         version: 4.18.3(typescript@6.0.3)
@@ -145,6 +148,9 @@ importers:
       '@vue-html-bridge/validator-api':
         specifier: workspace:*
         version: link:../validator-api
+      minimatch:
+        specifier: 10.2.6
+        version: 10.2.6
       vscode-languageserver:
         specifier: 10.1.0
         version: 10.1.0

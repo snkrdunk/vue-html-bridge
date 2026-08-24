@@ -3,7 +3,9 @@
 // real analyzer, and (by default) the real Markuplint adapter — nothing here
 // is mocked except where a test deliberately injects a failure or a
 // controllable delay.
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +14,7 @@ import {
   createMessageConnection,
   type MessageConnection,
 } from "vscode-jsonrpc/node";
+import { URI } from "vscode-uri";
 import { createFakeAdapter } from "@vue-html-bridge/adapter-testkit/fake";
 import { markuplintAdapter } from "@vue-html-bridge/adapter-markuplint";
 import {
@@ -67,6 +70,11 @@ function startHarness(
   client.onNotification((method: string, params: unknown) => {
     notifications.push({ method, params });
   });
+  // A client that supports dynamic registration acks it; individual tests
+  // that care about the concrete watchers registered can still add their
+  // own more specific onRequest handler for this method.
+  client.onRequest("client/registerCapability", () => null);
+  client.onRequest("client/unregisterCapability", () => null);
   client.listen();
 
   const handle: LanguageServerHandle = startLanguageServer({
@@ -113,13 +121,20 @@ function startHarness(
 async function initialize(
   client: MessageConnection,
   rootUri = "file:///workspace",
+  options: {
+    capabilities?: Record<string, unknown>;
+    initializationOptions?: unknown;
+  } = {},
 ) {
   const result = await client.sendRequest<{
     capabilities: Record<string, unknown>;
   }>("initialize", {
     processId: null,
     rootUri,
-    capabilities: {},
+    capabilities: options.capabilities ?? {},
+    ...(options.initializationOptions !== undefined
+      ? { initializationOptions: options.initializationOptions }
+      : {}),
   });
   await client.sendNotification("initialized", {});
   return result;
@@ -149,9 +164,19 @@ function didChangeFullText(
 }
 
 const harnesses: Harness[] = [];
+const tempDirs: string[] = [];
 afterEach(async () => {
   await Promise.all(harnesses.splice(0).map((h) => h.dispose()));
+  await Promise.all(
+    tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
+  );
 });
+
+async function tempWorkspace(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "vhb-language-server-e2e-"));
+  tempDirs.push(dir);
+  return dir;
+}
 
 function harness(
   createWorkspaceAnalyzerOverride?: (
@@ -527,6 +552,159 @@ describe("vertical-slice E2E (language-server.md §13.2 items 1-3,6; §13.3)", (
           (n.params as { version?: number }).version === 1,
       ),
     ).toBe(false);
+  });
+});
+
+const DUPLICATE_ID_TEMPLATE = `<template><div id="x"></div><div id="x"></div></template>`;
+
+function hasIdDuplication(diagnostics: readonly { code?: string }[]): boolean {
+  return diagnostics.some((d) => d.code === "id-duplication");
+}
+
+describe("vertical-slice E2E: settings/multi-root/trust/config-watching (language-server.md §9)", () => {
+  it("settings resolution via workspace/configuration disables the built-in validator (§9.2)", async () => {
+    const { client, waitForNotification } = harness();
+    client.onRequest(
+      "workspace/configuration",
+      (params: { items: readonly { section?: string }[] }) =>
+        params.items.map(() => ({ validators: [] })),
+    );
+    await initialize(client, "file:///workspace", {
+      capabilities: { workspace: { configuration: true } },
+    });
+
+    const uri = "file:///workspace/Dup.vue";
+    await didOpen(client, uri, DUPLICATE_ID_TEMPLATE);
+
+    const published = await waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) => params.uri === uri,
+    );
+    expect(hasIdDuplication(published.diagnostics)).toBe(false);
+  });
+
+  it("an untrusted workspace forces the built-in Markuplint adapter to ignore discovered workspace config (§4.2)", async () => {
+    const root = await tempWorkspace();
+    await writeFile(
+      join(root, ".markuplintrc"),
+      JSON.stringify({ rules: { "id-duplication": false } }),
+    );
+    const rootUri = URI.file(root).toString();
+
+    const { client, waitForNotification } = harness();
+    await initialize(client, rootUri, {
+      initializationOptions: { workspaceTrusted: false },
+    });
+
+    const uri = URI.file(join(root, "Dup.vue")).toString();
+    await didOpen(client, uri, DUPLICATE_ID_TEMPLATE);
+
+    const published = await waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) => params.uri === uri,
+    );
+    // The discovered .markuplintrc disabling this rule is ignored while
+    // untrusted, so the bundled default (which flags it) still applies.
+    expect(hasIdDuplication(published.diagnostics)).toBe(true);
+  });
+
+  it("a trusted workspace lets the built-in Markuplint adapter honor discovered workspace config (§4.2)", async () => {
+    const root = await tempWorkspace();
+    await writeFile(
+      join(root, ".markuplintrc"),
+      JSON.stringify({ rules: { "id-duplication": false } }),
+    );
+    const rootUri = URI.file(root).toString();
+
+    const { client, waitForNotification } = harness();
+    await initialize(client, rootUri, {
+      initializationOptions: { workspaceTrusted: true },
+    });
+
+    const uri = URI.file(join(root, "Dup.vue")).toString();
+    await didOpen(client, uri, DUPLICATE_ID_TEMPLATE);
+
+    const published = await waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) => params.uri === uri,
+    );
+    expect(hasIdDuplication(published.diagnostics)).toBe(false);
+  });
+
+  it("multi-root: each folder resolves its own discovered settings and routes documents to the matching session (§9.1, §9.2)", async () => {
+    const disabledRoot = await tempWorkspace();
+    await writeFile(
+      join(disabledRoot, ".vue-html-bridge.json"),
+      JSON.stringify({ validators: [] }),
+    );
+    const defaultRoot = await tempWorkspace();
+
+    const { client, waitForNotification } = harness();
+    const result = await client.sendRequest<{
+      capabilities: Record<string, unknown>;
+    }>("initialize", {
+      processId: null,
+      rootUri: null,
+      capabilities: {},
+      workspaceFolders: [
+        { uri: URI.file(disabledRoot).toString(), name: "disabled" },
+        { uri: URI.file(defaultRoot).toString(), name: "default" },
+      ],
+    });
+    expect(result).toBeDefined();
+    await client.sendNotification("initialized", {});
+
+    const disabledUri = URI.file(join(disabledRoot, "Dup.vue")).toString();
+    const defaultUri = URI.file(join(defaultRoot, "Dup.vue")).toString();
+    await didOpen(client, disabledUri, DUPLICATE_ID_TEMPLATE);
+    await didOpen(client, defaultUri, DUPLICATE_ID_TEMPLATE);
+
+    const disabledPublished = await waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) => params.uri === disabledUri,
+    );
+    const defaultPublished = await waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) => params.uri === defaultUri,
+    );
+    expect(hasIdDuplication(disabledPublished.diagnostics)).toBe(false);
+    expect(hasIdDuplication(defaultPublished.diagnostics)).toBe(true);
+  });
+
+  it("a config-file change reactively reconfigures the affected session and re-validates open documents (§9.3)", async () => {
+    const root = await tempWorkspace();
+    const rootUri = URI.file(root).toString();
+
+    const { client, waitForNotification } = harness();
+    await initialize(client, rootUri, {
+      initializationOptions: { workspaceTrusted: true },
+    });
+
+    const uri = URI.file(join(root, "Dup.vue")).toString();
+    await didOpen(client, uri, DUPLICATE_ID_TEMPLATE);
+    const beforeConfig = await waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) => params.uri === uri,
+    );
+    expect(hasIdDuplication(beforeConfig.diagnostics)).toBe(true);
+
+    const configPath = join(root, ".markuplintrc");
+    await writeFile(
+      configPath,
+      JSON.stringify({ rules: { "id-duplication": false } }),
+    );
+    await client.sendNotification("workspace/didChangeWatchedFiles", {
+      changes: [{ uri: URI.file(configPath).toString(), type: 1 }],
+    });
+
+    const afterConfig = await waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) =>
+        params.uri === uri &&
+        params.version === beforeConfig.version &&
+        !hasIdDuplication(params.diagnostics),
+    );
+    expect(hasIdDuplication(afterConfig.diagnostics)).toBe(false);
   });
 });
 

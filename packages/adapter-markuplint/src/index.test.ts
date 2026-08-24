@@ -617,6 +617,47 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
     );
   });
 
+  it("12c: auto-search discovers a config created after the first session found nothing there (reconfigure)", async () => {
+    const root = await tempWorkspace();
+    const html = '<div id="x"></div><div id="x"></div>';
+
+    // No config file exists yet: session A's auto-search finds nothing, so
+    // the bundled default (which flags id-duplication) applies.
+    const sessionA = await markuplintAdapter.createSession({
+      workspaceRoot: root,
+      settings: {},
+      logger: nullLogger,
+    });
+    const resultA = await sessionA.validate(
+      request(root, html),
+      new AbortController().signal,
+    );
+    await sessionA.dispose();
+    expect(resultA.diagnostics.some((d) => d.ruleId === "id-duplication")).toBe(
+      true,
+    );
+
+    // The language server's reaction to a watched config-file *creation* is
+    // the same session dispose+recreate as 12b (adapter-markuplint.md §4.3).
+    await writeFile(
+      join(root, ".markuplintrc"),
+      JSON.stringify({ rules: { "id-duplication": false } }),
+    );
+    const sessionB = await markuplintAdapter.createSession({
+      workspaceRoot: root,
+      settings: {},
+      logger: nullLogger,
+    });
+    const resultB = await sessionB.validate(
+      request(root, html),
+      new AbortController().signal,
+    );
+    await sessionB.dispose();
+    expect(resultB.diagnostics.some((d) => d.ruleId === "id-duplication")).toBe(
+      false,
+    );
+  });
+
   it("13: detects an incompatible Markuplint API shape and reports validator-unavailable", async () => {
     const root = await tempWorkspace();
     const prototype = MLEngine.prototype as unknown as Record<string, unknown>;

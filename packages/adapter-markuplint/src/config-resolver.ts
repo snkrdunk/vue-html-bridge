@@ -4,7 +4,9 @@
 // name. We resolve the nearest config from `sourceFilename`'s directory
 // ourselves, then pass it explicitly to MLEngine with `noSearchConfig: true`
 // so it never re-searches starting from the (unrelated) virtual directory.
-import { isAbsolute, dirname, resolve as resolvePath } from "node:path";
+import { dirname, resolve as resolvePath } from "node:path";
+import { cosmiconfig, defaultLoaders, type PublicExplorer } from "cosmiconfig";
+import { jsonc } from "jsonc";
 import { MLEngine } from "markuplint";
 import type { AdapterFailure } from "@vue-html-bridge/validator-api";
 import type { MarkuplintAdapterSettings } from "./settings.js";
@@ -29,6 +31,12 @@ export interface ResolvedConfig {
  */
 export class ConfigResolver {
   private readonly cache = new Map<string, Promise<ResolvedConfig>>();
+  // One explorer per resolver instance (i.e. per adapter session, §4.3): its
+  // internal cache is scoped to this instance's lifetime, so a session
+  // recreated after a config-file change (reconfigure({invalidateAdapters}))
+  // gets a genuinely fresh search — see searchUpward's doc comment for why
+  // MLEngine's own search path can't provide that guarantee.
+  private readonly searchExplorer = createSearchExplorer();
 
   constructor(
     private readonly workspaceRoot: string,
@@ -65,43 +73,86 @@ export class ConfigResolver {
     const sourceDir = dirname(sourceFilename);
     let cached = this.cache.get(sourceDir);
     if (!cached) {
-      cached = searchUpward(sourceFilename);
+      cached = this.searchUpward(sourceDir);
       this.cache.set(sourceDir, cached);
     }
     return cached;
   }
+
+  /**
+   * Finds the nearest config from `sourceDir` upward — the same search
+   * `configFilePatterns` documents as candidates.
+   *
+   * This deliberately does NOT go through `MLEngine.resolveConfig()` (as an
+   * earlier version did, via a throwaway engine): `@markuplint/file-resolver`
+   * v4.18.3's *discovery* phase (`ConfigProvider.search()`) always calls its
+   * search helper with `cacheClear` hardcoded to `false`, and that helper
+   * holds a single cosmiconfig explorer in a module-level singleton shared
+   * by every `MLEngine` instance for the life of the process — verified
+   * empirically: even two direct, independent `resolveConfig(false)` calls
+   * in the same process never see a config file created between them.
+   * `resolveConfig(false)`'s own cache-busting (see `resolveConfigFresh`)
+   * only reaches that singleton as a side effect of *loading* an
+   * already-known path; it never reaches the discovery-search cache, so it
+   * can never satisfy language-server.md §9.3's "a nearer config created
+   * after the session was initialized" guarantee for auto-search. Using our
+   * own per-instance explorer sidesteps the singleton entirely for
+   * discovery: a session recreated via `invalidateAdapters` gets a
+   * brand-new `ConfigResolver`, hence a brand-new explorer with an empty
+   * cache.
+   *
+   * Discovery alone isn't sufficient, though: once a path is found, the
+   * *real* validation run later still loads that path's content through
+   * `MLEngine`'s own engine (`engine.ts`, `configFile: <this path>`), which
+   * goes through the very same process-wide content cache described above.
+   * `bustStaleConfigCache` (shared with the explicit-`configFile` branch)
+   * clears that cache too, so a config whose *content* changed between
+   * sessions (path unchanged) is also read fresh.
+   */
+  private async searchUpward(sourceDir: string): Promise<ResolvedConfig> {
+    try {
+      const result = await this.searchExplorer.search(sourceDir);
+      const configFilePath = result?.filepath;
+      if (configFilePath !== undefined) {
+        await bustStaleConfigCache(configFilePath);
+      }
+      return { configFilePath };
+    } catch (error) {
+      // §7: a plugin/parser import failure (or any other resolution error)
+      // discovered here — before there's even a real MLEngine validation run —
+      // is a configuration-error, same as one discovered during exec().
+      return {
+        configFilePath: undefined,
+        failure: describeConfigResolutionFailure(error),
+      };
+    }
+  }
 }
 
 /**
- * Uses Markuplint's own cosmiconfig-based search (via a throwaway engine that
- * is never linted) to find the nearest config from `sourceFilename`'s real
- * directory — the same search `configFilePatterns` documents as candidates.
+ * Matches `@markuplint/file-resolver`'s own (unexported) explorer
+ * configuration exactly, so search results/precedence stay identical to
+ * what `MLEngine`'s real validation later loads via `configFile` — same
+ * JSONC-tolerant loader for extension-less `.markuplintrc`, same
+ * `searchStrategy`. See `ConfigResolver.searchUpward`'s doc comment for why
+ * this package needs its own explorer instance rather than reusing theirs.
  */
-async function searchUpward(sourceFilename: string): Promise<ResolvedConfig> {
-  const engine = await MLEngine.fromCode("", { name: sourceFilename });
-  try {
-    const configSet = await resolveConfigFresh(engine);
-    // `configSet.files` orders a config's own *dependencies* (its `extends`
-    // targets) before the config itself (Markuplint resolves extends first,
-    // then appends the referencing file) — the last absolute path is the
-    // discovered config Markuplint's search actually found, not one of its
-    // dependencies. Preset names (`markuplint:...`) are filtered out by the
-    // `isAbsolute` check, along with any injected default-recommended entry.
-    const absoluteFiles = [...configSet.files].filter((file) =>
-      isAbsolute(file),
-    );
-    return { configFilePath: absoluteFiles.at(-1) };
-  } catch (error) {
-    // §7: a plugin/parser import failure (or any other resolution error)
-    // discovered here — before there's even a real MLEngine validation run —
-    // is a configuration-error, same as one discovered during exec().
-    return {
-      configFilePath: undefined,
-      failure: describeConfigResolutionFailure(error),
-    };
-  } finally {
-    await engine.close();
-  }
+function createSearchExplorer(): PublicExplorer {
+  return cosmiconfig("markuplint", {
+    loaders: {
+      noExt: (filePath: string, content: string) => {
+        try {
+          return jsonc.parse(content) as unknown;
+        } catch (error) {
+          if (error instanceof Error && error.name === "JSONError") {
+            return defaultLoaders.noExt(filePath, content);
+          }
+          throw error;
+        }
+      },
+    },
+    searchStrategy: "project",
+  });
 }
 
 function describeConfigResolutionFailure(error: unknown): AdapterFailure {
@@ -158,9 +209,11 @@ async function bustStaleConfigCache(nearFile: string): Promise<void> {
  * very same resolution just created, before they're looked up — a real
  * `@markuplint/file-resolver` defect, not intentional behavior. That crashes
  * with a `TypeError` in exactly those cases. A plain, option-free auto-search
- * call (as used here and in `searchUpward`) never creates one of those
+ * call (as used here) never creates one of those
  * synthetic entries as long as it finds a real config file, so `false`
- * succeeds — and successfully clears the process-wide cache for *all* paths,
+ * succeeds — and successfully clears the process-wide *content* cache for
+ * *all* paths (though never the discovery-search cache — see
+ * `ConfigResolver.searchUpward`'s doc comment),
  * not just the one this call happened to touch, which is what benefits a
  * *different* explicit `configFile` path validated moments later. Falling
  * back to `true` (the original, safe, cache-serving behavior) on any
