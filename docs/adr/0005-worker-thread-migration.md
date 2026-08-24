@@ -99,6 +99,41 @@ Conclusion unchanged: no worker-thread migration needed. Re-measured again,
 on the full Phase 2 feature set (global Decision Model, aggregation), at the
 Phase 2 performance gate (implementation-plan.md §5).
 
+## Phase 2 re-measurement (2026-08-24)
+
+implementation-plan.md §5's Phase 2 performance gate required re-measuring
+with the full Decision Model (Track 1: templateScopeId, v-for correlation,
+full directive/builtin coverage) and analyzer's normalization/aggregation/
+cache (Track 2) in place, not the Phase 1 subset. Same three
+`examples/playground/*.vue` fixtures, 10-run min/p50/max:
+
+- **Core's own synchronous segment** (`generateVariants` alone):
+  `item-list.vue` 0.39/0.56/9.27ms; `logged-in-aria-controls.vue`
+  0.20/0.24/1.13ms; `status-literal-union.vue` 0.37/0.45/5.66ms. Materially
+  unchanged from the Phase 1 numbers — the full Decision Model's extra work
+  (scope tracking, `.length` safety analysis, the fuller directive table)
+  does not move the needle at this scale. The occasional multi-millisecond
+  max is the first sample in the run (module/JIT warmup), not a per-call
+  cost; still 1-2 orders of magnitude under budget even at that outlier.
+- **Full end-to-end latency** (`analyzer.analyze()`, real Markuplint
+  validation, a **fresh** `WorkspaceAnalyzer` per sample so §10's
+  generation/validation caches can't turn this into a cache-hit
+  measurement): `item-list.vue` 21.1/23.3/120.9ms; `logged-in-aria-controls.vue`
+  13.9/14.6/23.9ms; `status-literal-union.vue` 26.4/28.4/33.4ms. The one
+  outlier (`item-list.vue`'s first sample, ~120ms) is Markuplint's own
+  first-touch module initialization within the process, not part of core's
+  bounded synchronous segment; every other sample across all three fixtures
+  stays under 35ms. For comparison, a *warm* `analyzer.analyze()` call
+  against an already-cached source/HTML pair (the common case in a live
+  editing session, since a document is re-analyzed far more often than it's
+  first opened) measured 0.02-0.05ms — the cache added in Track 2 is doing
+  real, measurable work.
+
+Conclusion unchanged: no worker-thread migration needed for Phase 2 either.
+Re-measure again if/when Phase 3's external-adapter loading or a
+significantly larger representative project changes the shape of this
+number.
+
 ## Alternatives considered
 
 - **Migrate to a worker thread now, preemptively**: rejected — no measured
