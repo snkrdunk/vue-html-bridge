@@ -16,12 +16,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Matches vitest's supported engines (packages/*/package.json).
+        # Matches the root package.json's supported engines. Node 20 was
+        # dropped (2026-08-25): pnpm 11 requires Node >=22.13 (it moved its
+        # store index to node:sqlite, a Node 22+ builtin), so a pnpm-11
+        # toolchain can no longer run under Node 20 at all — and Node 20's
+        # own LTS maintenance window had already ended (2026-04-30).
         # Markuplint is pinned to a single version (^4.18.3, ADR-0003) —
         # adapter-markuplint.md §9.2 item 13's version-matrix dimension is
         # deliberately deferred to Phase 3, when a second supported major
         # exists to matrix against (monorepo.md §8 "CI matrix" policy).
-        node-version: [20, 22, 24]
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@v4
 
