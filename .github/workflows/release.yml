@@ -1,0 +1,67 @@
+name: Release
+
+# Runs only after the "CI" workflow (ci.yml) completes successfully on main
+# (workflow_run, not the same push event) — this never duplicates the
+# build/typecheck/test/lint matrix, and never versions or publishes on top
+# of a commit that hasn't actually passed CI. `branches: [main]` filters to
+# CI runs whose *triggering* push was to main, so pull_request-triggered CI
+# runs on other branches never reach this workflow.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+# No cancel-in-progress: interrupting an in-flight `pnpm changeset publish`
+# mid-way could leave the dependency graph half-published. A second release
+# run queues behind the first instead.
+concurrency:
+  group: release-${{ github.workflow }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    name: Version or Publish
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The workflow_run event's default ref is not the commit CI just
+          # verified — pin explicitly to it (changesets/action also needs
+          # full history to diff pending changesets against).
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          # Templates .npmrc's registry + auth-token line; pnpm (not just
+          # npm) reads this file too, and @changesets/cli's pnpm-detected
+          # publish path (adapter-loader.md's pnpm-workspace.yaml, this
+          # repo's packageManager field) shells out to `pnpm publish`,
+          # which relies on it for the npm registry auth token.
+          registry-url: "https://registry.npmjs.org"
+
+      - run: pnpm install --frozen-lockfile
+
+      # Only `build` is needed here (not typecheck/test) — the "CI"
+      # workflow this run is gated on already verified those on the exact
+      # same commit; this step exists purely because dist/ output isn't
+      # committed to git and isn't shared across separate workflow runs.
+      - run: pnpm run build
+
+      - name: Create Release Pull Request or Publish
+        uses: changesets/action@v1
+        with:
+          version: pnpm changeset version
+          publish: pnpm changeset publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
