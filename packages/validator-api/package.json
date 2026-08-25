@@ -1,6 +1,7 @@
 {
   "name": "@vue-html-bridge/validator-api",
   "version": "0.0.0",
+  "license": "MIT",
   "private": true,
   "description": "The stable SPI that HTML validator adapters implement, and normalized diagnostic types.",
   "type": "module",

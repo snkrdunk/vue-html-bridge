@@ -1,6 +1,7 @@
 {
   "name": "@vue-html-bridge/analyzer",
   "version": "0.0.0",
+  "license": "MIT",
   "private": true,
   "description": "Runs core and validator adapters, reverse-maps diagnostics, and aggregates results.",
   "type": "module",

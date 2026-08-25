@@ -1,6 +1,7 @@
 {
   "name": "@vue-html-bridge/language-server",
   "version": "0.0.0",
+  "license": "MIT",
   "private": true,
   "description": "LSP server that publishes vue-html-bridge diagnostics and hover.",
   "type": "module",

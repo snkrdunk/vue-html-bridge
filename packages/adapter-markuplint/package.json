@@ -1,6 +1,7 @@
 {
   "name": "@vue-html-bridge/adapter-markuplint",
   "version": "0.0.0",
+  "license": "MIT",
   "private": true,
   "description": "Markuplint adapter for @vue-html-bridge/validator-api.",
   "type": "module",
