@@ -1,6 +1,6 @@
 {
   "name": "@vue-html-bridge/adapter-loader",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "license": "MIT",
   "description": "Host-neutral validator-adapter loading and trust gating, shared by the language server and CLI.",
   "type": "module",
