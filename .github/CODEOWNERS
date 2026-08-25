@@ -1,0 +1,6 @@
+# CODEOWNERS: default reviewer assignment for every file in the repository.
+# See https://docs.github.com/articles/about-code-owners for syntax.
+# The last matching pattern wins, so more specific rules should be added
+# below this line as ownership grows beyond a single maintainer.
+
+* @nagashimam
