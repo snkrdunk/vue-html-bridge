@@ -43,11 +43,19 @@ Requirements driving the choice:
   implementation-plan.md §2 already run `build` first for this reason.
 - **Versioning and changelogs**: Changesets (`@changesets/cli`), configured
   now (`.changeset/config.json`) so every Stage-A-and-later PR can carry a
-  changeset from the start. `access` stays `"restricted"` until Phase 3
-  release engineering (implementation-plan.md §6 task 6) flips it to
-  `"public"` for the first real publish; no publish workflow is wired yet —
-  that is explicitly a Phase 3 task, not Stage A's (A6's note: "publish-side
-  verification (pack/install smoke test) is a Phase 3 task").
+  changeset from the start. `access` stayed `"restricted"` through Phase 3
+  implementation, then flipped to `"public"` at Phase 3 release engineering
+  (implementation-plan.md §6 task 6, 2026-08-25) alongside removing
+  `"private": true` from all 9 publishable packages (the root monorepo
+  manifest itself stays private — it is never published). `updateInternalDependencies:
+  "patch"` (already set) is what propagates a version bump through the
+  dependency graph: changing `vue-html-bridge` (core) bumps every package
+  that depends on it, transitively, while a change to `@vue-html-bridge/cli`
+  — which nothing depends on — bumps only itself; verified empirically in a
+  throwaway worktree before flipping the real flags. An automated CI
+  publish workflow (`changesets/action` or equivalent) is not wired yet —
+  `pnpm changeset version` / `pnpm changeset publish` are run by hand for
+  now.
 - **Dependency direction**: enforced by a small custom script
   (`scripts/check-dependency-graph.mjs`, run as `pnpm run check:deps` and
   wired into CI) rather than `dependency-cruiser`. The invariants to check —

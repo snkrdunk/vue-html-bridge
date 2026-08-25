@@ -2,7 +2,6 @@
   "name": "@vue-html-bridge/adapter-testkit",
   "version": "0.0.0",
   "license": "MIT",
-  "private": true,
   "description": "Contract tests, fake adapter, and fixtures for validator-api adapters.",
   "type": "module",
   "exports": {

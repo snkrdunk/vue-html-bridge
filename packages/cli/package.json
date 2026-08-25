@@ -2,7 +2,6 @@
   "name": "@vue-html-bridge/cli",
   "version": "0.0.0",
   "license": "MIT",
-  "private": true,
   "description": "One-shot command-line client for vue-html-bridge analysis.",
   "type": "module",
   "exports": {
