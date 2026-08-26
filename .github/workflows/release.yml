@@ -64,4 +64,13 @@ jobs:
           publish: pnpm changeset publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # changesets/action itself only looks for a literal `NPM_TOKEN` env
+          # var to decide whether to write an npm auth-token line at all
+          # (falling back to "assume already authenticated" otherwise, which
+          # is a silent no-op if nothing else configured one) — verified by
+          # reading its actual v1 bundle. Without this, publishing worked by
+          # accident via actions/setup-node's own templated .npmrc reading
+          # NODE_AUTH_TOKEN, which is kept too since it's what that .npmrc
+          # actually references; the two are redundant, not conflicting.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
