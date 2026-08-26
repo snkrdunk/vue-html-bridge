@@ -1,6 +1,6 @@
 {
   "name": "@vue-html-bridge/settings",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "license": "MIT",
   "description": "Shared settings schema, defaults, resolution, and decomposition for both hosts.",
   "type": "module",
