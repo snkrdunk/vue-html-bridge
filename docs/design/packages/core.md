@@ -280,7 +280,7 @@ We do not evaluate function calls, constructor calls, assignment/update expressi
 **Unknown fallback (unified rule):**
 
 - IF: generate both "this branch is taken" and "control proceeds to the next branch" locally.
-- `v-bind` / `v-model`: if the whole expression's type can be resolved to a finite union, generate only those candidates locally. If that is not possible either, fall back to a type-appropriate dummy value plus an `expression-not-symbolically-evaluable` diagnostic.
+- `v-bind` / `v-model`: if the whole expression's type can be resolved to a finite union, generate only those candidates locally. If that is not possible either, fall back to a type-appropriate dummy value plus an `expression-not-symbolically-evaluable` **hint**-severity diagnostic.
 - Multiple occurrences of the same unevaluable expression are, in principle, not correlated with each other, since a function call (for example) is not guaranteed to return the same result each time. Only side-effect-free boolean expressions can be promoted to a predicate decision.
 
 Unevaluable-expression diagnostics are not added redundantly per environment by the renderer. When the Decision Model is built, we record one entry per expression, keyed by "diagnostic code + source range of the template expression". Only the rendered result of the local fallback varies per environment.
