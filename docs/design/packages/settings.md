@@ -47,6 +47,7 @@ export interface VueHtmlBridgeSettingsInput {
   maxConcurrency?: number;
   warnVariantCount?: number;
   customElements?: readonly string[];
+  customDirectives?: readonly CustomDirectiveSettingInput[];
   externalAdapters?: "disabled" | "trusted-workspace-only";
   validators?: readonly ValidatorSettingInput[];
 }
@@ -55,6 +56,12 @@ export interface ValidatorSettingInput {
   adapter: string;
   enabled?: boolean; // default: true
   settings?: unknown;
+}
+
+/** One entry of `customDirectives` (core.md §5.3.1, ADR-0010). */
+export interface CustomDirectiveSettingInput {
+  name: string;
+  attributes: Record<string, string>; // attrName -> value template
 }
 
 /** The merged result every consumer receives. */
@@ -70,6 +77,7 @@ export interface ResolvedVueHtmlBridgeSettings {
   /** undefined = delegate to core's default of 256 (core.md §2.1). */
   warnVariantCount: number | undefined;
   customElements: readonly string[];
+  customDirectives: readonly ResolvedCustomDirectiveSetting[];
   externalAdapters: "disabled" | "trusted-workspace-only";
   validators: readonly ResolvedValidatorSetting[];
 }
@@ -78,6 +86,11 @@ export interface ResolvedValidatorSetting {
   adapter: string;
   enabled: boolean;
   settings?: unknown;
+}
+
+export interface ResolvedCustomDirectiveSetting {
+  readonly name: string;
+  readonly attributes: Readonly<Record<string, string>>;
 }
 ```
 
@@ -96,10 +109,13 @@ Defaults where a package downstream owns the real value (`maxConcurrency`, `warn
 | `maxConcurrency` | `undefined` (analyzer's CPU-count default) | integer, `>= 1` |
 | `warnVariantCount` | `undefined` (core's default of 256) | integer, `>= 1` |
 | `customElements` | `[]` | array of tag-name/glob strings |
+| `customDirectives` | `[]` | see below |
 | `externalAdapters` | `"disabled"` | enum |
 | `validators` | `[{ adapter: "markuplint", enabled: true }]` | see below |
 
 `validators[].adapter` is the entry key and is part of the public contract: the built-in adapter is addressed by its stable adapter **id** (`"markuplint"`, validator-api §3); an external adapter by its npm package specifier. The default enables the built-in Markuplint adapter by id. Two entries with the same `adapter` string in one layer are a `duplicate-adapter` error issue (the first entry wins). How the two identifier kinds are told apart and gated at load time is adapter-loader.md's contract.
+
+`customDirectives[].name` must match `/^[A-Za-z][\w-]*$/` (`DirectiveNode.name`'s actual character set) and must not be one of the 15 reserved built-in/control directive names (`bind`, `on`, `model`, `text`, `html`, `slot`, `pre`, `if`, `else-if`, `else`, `for`, `show`, `once`, `memo`, `cloak`) — a `reserved-custom-directive` error, since such a mapping could never be reached by core's dispatch order. Two entries colliding on **camelized** name (`img-attr` and `imgAttr`) are a `duplicate-custom-directive` error; the first entry wins, matching `validators[]`'s precedent. `customDirectives[].attributes` must be a non-empty (after per-key filtering) object whose keys match `/^[a-zA-Z][\w:-]*$/` — an invalid key drops just that attribute entry, not the whole mapping, with an `invalid-type` issue; an attribute value template containing the literal text `"$value"` anywhere must fully match `/^\$value(?:\.[A-Za-z_$][\w$]*)*$/` (`$value` optionally followed by dotted property segments, e.g. `$value.src`) or it is rejected the same way; a template with **no** `$value` occurrence is a literal string constant, emitted verbatim (core.md §5.3.1, ADR-0010).
 
 `enabled`, `validateOnChange`, `validateOnSave`, and `debounceMs` describe automatic editor-session behavior. They are part of the shared schema (a workspace file sets them once for both hosts), but a one-shot host ignores them; cli.md §4.2 documents that. Grouping these editor-only fields under a nested `editor: { ... }` section is a candidate for a future schema version; in v1 the schema stays flat.
 
@@ -195,7 +211,7 @@ A delegated field (`maxConcurrency`, `warnVariantCount` = `undefined`) is omitte
 
 | Settings field | Consumed by |
 | --- | --- |
-| `warnVariantCount`, `customElements` | core's `GenerateOptions` (through the analyzer's `generateOptions`) |
+| `warnVariantCount`, `customElements`, `customDirectives` | core's `GenerateOptions` (through the analyzer's `generateOptions`) |
 | `maxConcurrency` | analyzer's `CreateWorkspaceAnalyzerOptions` / `ReconfigureOptions` |
 | `validators` | adapter loading (adapter-loader.md), then each adapter's `AdapterSessionContext.settings` |
 | `enabled`, `include`/`exclude`, `validateOn*`, `debounceMs`, `externalAdapters` | the host (language server or CLI) |
@@ -216,16 +232,18 @@ A delegated field (`maxConcurrency`, `warnVariantCount` = `undefined`) is omitte
 
 The canonical `$schema` reference is `./node_modules/@vue-html-bridge/settings/schema.json`. It must resolve in any installation that can run the bridge — including a CLI-only project that does not depend on the language server. The language-server package ships a copy as a backward-compatibility alias for existing `$schema` references; that copy is produced at build time from this package, never edited by hand.
 
+Where a §3.1 rule is expressible as a JSON-schema `pattern`, the generated schema carries it as an editor-level hint built from resolve.ts's real constants (never a hand-written second copy): `customDirectives[].attributes` constrains its keys via `propertyNames` (the attribute-name pattern) and each value via a pattern accepting either a `$value`-free literal constant or the `$value` dotted-path grammar. `resolveSettings` remains the authoritative validation — the schema only lets an editor flag these mistakes before a run.
+
 ## 8. Tests
 
 1. Defaults: `resolveSettings([])` equals the §3.1 table, including the delegated `undefined` values and the default `validators` entry.
 2. Merge matrix: field-by-field object merge, full array replacement, layer precedence order.
-3. Validation: unknown field → warning + dropped; invalid type / out-of-range per field → error + pinned to default; `$schema`/`version` accepted and ignored; `duplicate-adapter` detection.
+3. Validation: unknown field → warning + dropped; invalid type / out-of-range per field → error + pinned to default; `$schema`/`version` accepted and ignored; `duplicate-adapter` detection. `customDirectives[]`: per-item validation (one bad entry dropped without discarding the rest); exact-name and camelized-name duplicate detection (`duplicate-custom-directive`); reserved-name rejection (`reserved-custom-directive`); `$value`-grammar accept/reject cases; attribute-key pattern rejection (a key with a space or quote drops just that attribute).
 4. Pinning beats lower layers: an invalid `externalAdapters` in the top layer resolves to `"disabled"` even when a lower layer validly sets `"trusted-workspace-only"`, with an `error` issue.
 5. Discovery loader: order, first-hit-wins, parse error → issue with `sourcePath`, no upward traversal.
 6. Explicit-file loader: settings-object-only format (no `package.json` extraction), `file-missing` / `file-unreadable` / `parse-error` distinguished, absolute `sourcePath`.
-7. Decomposition table parity: a shared fixture asserts the §6 table, including that delegated fields are omitted; the same fixture is reused by the language-server and CLI test suites so a new field cannot be routed inconsistently.
-8. Contract tests: the structural `GenerateOptions` shape accepted by core, and the analyzer options shape, match this package's declarations.
+7. Decomposition table parity: a shared fixture asserts the §6 table, including that delegated fields are omitted and that `customDirectives` (like `customElements`) is an always-present passthrough, never omitted; the same fixture is reused by the language-server and CLI test suites so a new field cannot be routed inconsistently.
+8. Contract tests: the structural `GenerateOptions` shape accepted by core, and the analyzer options shape, match this package's declarations. This package's intentionally-duplicated `customDirectives` validation constants (`ATTRIBUTE_NAME_PATTERN` / `VALUE_PATH_PATTERN` regex sources, and the reserved-directive-name set) are pinned against core's own exports of the same constants, so the two copies can never drift apart silently.
 9. `schema.json` golden: regeneration is byte-identical; a schema change requires an intentional golden update. The export path `@vue-html-bridge/settings/schema.json` resolves from a consumer package.
 
 ## 9. Proposed internal module layout

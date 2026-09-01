@@ -21,6 +21,7 @@ import {
   lengthComparisonSafety,
   normalizeExpression,
   referencedPaths,
+  type EvaluationResult,
   type ExpressionEnvironment,
 } from "./expressions.js";
 import {
@@ -30,6 +31,7 @@ import {
 } from "./type-analysis.js";
 import type {
   CoreDiagnostic,
+  CustomDirectiveMapping,
   DecisionAssignment,
   GenerateRequest,
   GenerateResult,
@@ -193,6 +195,151 @@ const ATTRIBUTE_BLOCKLIST = new Set([
   "false-value",
 ]);
 
+/** A value template is either a literal-string constant, or `$value` optionally followed by dotted property segments. */
+export const VALUE_PATH_PATTERN = /^\$value(?:\.[A-Za-z_$][\w$]*)*$/;
+export const ATTRIBUTE_NAME_PATTERN = /^[a-zA-Z][\w:-]*$/;
+export const RESERVED_DIRECTIVE_NAMES: ReadonlySet<string> = new Set([
+  "bind",
+  "on",
+  "model",
+  "text",
+  "html",
+  "slot",
+  "pre",
+  "if",
+  "else-if",
+  "else",
+  "for",
+  "show",
+  "once",
+  "memo",
+  "cloak",
+]);
+
+type ParsedValueTemplate =
+  | { kind: "constant"; value: string } // literal string, emitted verbatim
+  | { kind: "value-path"; path: readonly string[] }; // [] for bare "$value"
+
+interface ParsedCustomDirective {
+  attributes: ReadonlyMap<string, ParsedValueTemplate>;
+}
+
+/** Mirrors Vue's own camelize idiom, shared by `resolveDirective`'s directive-name matching and the `.camel` v-bind modifier — so both template spellings of a directive name reach one declared mapping. */
+function camelize(name: string): string {
+  return name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
+
+/** `undefined` = a malformed `$value`-containing template; settings should already reject it, and `parseCustomDirectiveMappings` drops it with a warning. */
+function parseValueTemplate(template: string): ParsedValueTemplate | undefined {
+  if (!template.includes("$value"))
+    return { kind: "constant", value: template };
+  if (!VALUE_PATH_PATTERN.test(template)) return undefined;
+  const rest = template.slice("$value".length);
+  const path = rest.length === 0 ? [] : rest.slice(1).split(".");
+  return { kind: "value-path", path };
+}
+
+/**
+ * Core-side defensive re-validation (v3): settings.ts is the primary
+ * validation surface with per-field error messages, but a direct core-API
+ * caller bypasses it, so parsing re-checks attribute-name keys, value
+ * templates, reserved directive names, and camelized-name collisions here
+ * too. Rejected items are dropped and reported as one
+ * `custom-directive-mapping-invalid` warning each (anchored at
+ * `templateRange`, since options carry no source location of their own).
+ */
+function parseCustomDirectiveMappings(
+  raw: readonly CustomDirectiveMapping[],
+  diagnostics: CoreDiagnostic[],
+  templateRange: SourceRange,
+): ReadonlyMap<string, ParsedCustomDirective> {
+  const invalid = (message: string) => {
+    diagnostics.push({
+      code: "custom-directive-mapping-invalid",
+      severity: "warning",
+      message,
+      sourceRange: templateRange,
+    });
+  };
+
+  const byCamelName = new Map<string, CustomDirectiveMapping[]>();
+  for (const mapping of raw) {
+    const camelName = camelize(mapping.name);
+    const list = byCamelName.get(camelName);
+    if (list) list.push(mapping);
+    else byCamelName.set(camelName, [mapping]);
+  }
+
+  const result = new Map<string, ParsedCustomDirective>();
+  for (const [camelName, mappings] of byCamelName) {
+    if (mappings.length > 1) {
+      for (const mapping of mappings) {
+        invalid(
+          `Multiple customDirectives entries resolve to the same directive name "${camelName}" after camelizing (including "${mapping.name}"); all of them were ignored.`,
+        );
+      }
+      continue;
+    }
+    const mapping = mappings[0]!;
+    if (RESERVED_DIRECTIVE_NAMES.has(camelName)) {
+      invalid(
+        `customDirectives entry "${mapping.name}" names a reserved built-in directive and was ignored.`,
+      );
+      continue;
+    }
+    const attributes = new Map<string, ParsedValueTemplate>();
+    for (const [attrName, template] of Object.entries(mapping.attributes)) {
+      if (!ATTRIBUTE_NAME_PATTERN.test(attrName)) {
+        invalid(
+          `customDirectives entry "${mapping.name}" has an invalid attribute name "${attrName}"; it was ignored.`,
+        );
+        continue;
+      }
+      const parsed = parseValueTemplate(template);
+      if (!parsed) {
+        invalid(
+          `customDirectives entry "${mapping.name}" has an invalid value template for attribute "${attrName}" (a template containing "$value" must be "$value" optionally followed by dotted property segments); it was ignored.`,
+        );
+        continue;
+      }
+      attributes.set(attrName, parsed);
+    }
+    if (attributes.size === 0) continue;
+    result.set(camelName, { attributes });
+  }
+  return result;
+}
+
+/** The camelized names of declared directives with at least one `value-path` template — an all-constant mapping never evaluates its bound expression, so it must not register decisions either (§1). */
+function directiveNamesWithValuePath(
+  parsed: ReadonlyMap<string, ParsedCustomDirective>,
+): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const [name, directive] of parsed) {
+    for (const template of directive.attributes.values()) {
+      if (template.kind === "value-path") {
+        names.add(name);
+        break;
+      }
+    }
+  }
+  return names;
+}
+
+function lookupValuePath(
+  value: JsonValue | undefined,
+  path: readonly string[],
+): { found: true; value: JsonValue | undefined } | { found: false } {
+  let current: JsonValue | undefined = value;
+  for (const segment of path) {
+    // Own properties only: `$value.constructor` / `$value.toString` /
+    // `$value.__proto__` must never resolve an inherited value (v3).
+    if (!isJsonObject(current)) return { found: false };
+    current = Object.hasOwn(current, segment) ? current[segment] : undefined;
+  }
+  return { found: true, value: current };
+}
+
 export async function generateVariants(
   request: GenerateRequest,
 ): Promise<GenerateResult> {
@@ -281,11 +428,18 @@ export async function generateVariants(
     scriptBlock?.content,
     request.typeContext,
   );
+  const customDirectives = parseCustomDirectiveMappings(
+    request.options?.customDirectives ?? [],
+    diagnostics,
+    templateRange,
+  );
+  const valueDirectiveNames = directiveNamesWithValuePath(customDirectives);
   signal.throwIfAborted();
   const collector = new DecisionCollector(
     request.filename,
     template.loc.start.offset,
     bindings,
+    valueDirectiveNames,
   );
   collector.walk(root);
   diagnostics.push(...collector.diagnostics);
@@ -318,6 +472,7 @@ export async function generateVariants(
       environment,
       diagnostics,
       customElements: request.options?.customElements ?? [],
+      customDirectives,
     });
     const fragments = renderer.renderChildren(root.children);
     const serialized = serialize(fragments);
@@ -354,6 +509,7 @@ class DecisionCollector {
     private readonly filename: string,
     private readonly templateOffset: number,
     private readonly bindings: ReadonlyMap<string, BindingInfo>,
+    private readonly valueDirectiveNames: ReadonlySet<string>,
   ) {}
 
   walk(
@@ -382,7 +538,11 @@ class DecisionCollector {
         const propScope = isIfLike ? scope : ownScope;
         if (expression && isIfLike) {
           this.addExpression(expression, true, prop.exp!, propScope);
-        } else if (expression && ["bind", "model"].includes(prop.name)) {
+        } else if (
+          expression &&
+          (["bind", "model"].includes(prop.name) ||
+            this.valueDirectiveNames.has(camelize(prop.name)))
+        ) {
           this.addExpression(expression, false, prop.exp!, propScope);
         }
         if (prop.name === "bind" && prop.arg) {
@@ -494,6 +654,7 @@ interface RendererOptions {
   environment: Environment;
   diagnostics: CoreDiagnostic[];
   customElements: readonly string[];
+  customDirectives: ReadonlyMap<string, ParsedCustomDirective>;
 }
 
 class Renderer {
@@ -792,11 +953,16 @@ class Renderer {
         const modelAttribute = this.renderModel(node, prop);
         if (modelAttribute) output.push(modelAttribute);
       } else if (!["text", "html", "slot", "pre"].includes(prop.name)) {
-        this.addDiagnostic(
-          "custom-directive-not-modeled",
-          `The DOM effects of v-${prop.name} are not modeled.`,
-          prop.loc,
-        );
+        const mapping = this.options.customDirectives.get(camelize(prop.name));
+        if (mapping) {
+          output.push(...this.renderCustomDirective(prop, scope, mapping));
+        } else {
+          this.addDiagnostic(
+            "custom-directive-not-modeled",
+            `The DOM effects of v-${prop.name} are not modeled.`,
+            prop.loc,
+          );
+        }
       }
     }
     return output.sort(
@@ -848,9 +1014,7 @@ class Renderer {
       return [];
     }
     if (prop.modifiers.some((modifier) => modifier.content === "camel")) {
-      name = name.replace(/-([a-z])/g, (_, letter: string) =>
-        letter.toUpperCase(),
-      );
+      name = camelize(name);
     }
     if (ATTRIBUTE_BLOCKLIST.has(name)) return [];
     if (evaluated.kind === "known") {
@@ -948,6 +1112,97 @@ class Renderer {
         sourceRange,
         transformation: "v-model",
       },
+    };
+  }
+
+  private renderCustomDirective(
+    prop: DirectiveNode,
+    scope: readonly ForScope[],
+    mapping: ParsedCustomDirective,
+  ): FragmentAttribute[] {
+    const exp = asSimpleExpression(prop.exp);
+    // Evaluated at most once, lazily, only if some value-path template
+    // needs it — an all-constant mapping never touches the bound
+    // expression at all (§1: this is also why DecisionCollector must skip
+    // registering a decision for such a mapping).
+    let evaluated: EvaluationResult | undefined;
+    const evaluateOnce = (): EvaluationResult => {
+      evaluated ??= exp?.content
+        ? this.evaluate(exp.content, scope, exp.loc.start.offset)
+        : { kind: "unknown", reason: "no-bound-expression" };
+      return evaluated;
+    };
+
+    const output: FragmentAttribute[] = [];
+    const sortedAttributes = [...mapping.attributes.entries()].sort(
+      ([left], [right]) => left.localeCompare(right),
+    );
+    for (const [name, template] of sortedAttributes) {
+      if (template.kind === "constant") {
+        const anchorRange = this.sourceRange(prop.loc);
+        output.push({
+          name,
+          value: template.value,
+          nameRange: anchorRange,
+          valueRange: anchorRange,
+          provenance: { kind: "source-literal", sourceRange: anchorRange },
+        });
+        continue;
+      }
+      const result = evaluateOnce();
+      if (result.kind !== "known") {
+        output.push(
+          this.unresolvedCustomDirectiveAttribute(name, prop, exp, scope),
+        );
+        continue;
+      }
+      const looked = lookupValuePath(result.value, template.path);
+      if (!looked.found) {
+        output.push(
+          this.unresolvedCustomDirectiveAttribute(name, prop, exp, scope),
+        );
+        continue;
+      }
+      // Reusing the same `exp` for every fanned-out attribute (never a
+      // synthetic node) is what makes each attribute's sourceRange and
+      // provenance point at the real directive usage, exactly mirroring
+      // `v-bind="obj"`'s own no-arg fan-out. Accepted imprecision: every
+      // attribute inherits the bound expression's finite-domain provenance
+      // even if it doesn't depend on the specific fanned path (§1).
+      output.push(
+        ...this.attributeFromValue(name, looked.value, prop.loc, exp!, scope),
+      );
+    }
+    return output;
+  }
+
+  private unresolvedCustomDirectiveAttribute(
+    name: string,
+    prop: DirectiveNode,
+    exp: SimpleExpressionNode | undefined,
+    scope: readonly ForScope[],
+  ): FragmentAttribute {
+    const anchorLoc = exp?.loc ?? prop.loc;
+    const anchorRange = this.sourceRange(anchorLoc);
+    const provenance: GeneratedValueProvenance = exp
+      ? this.sentinelProvenance(exp.content, anchorRange, scope)
+      : {
+          kind: "sentinel",
+          sourceRange: anchorRange,
+          reason: "unresolved-expression",
+        };
+    this.addDiagnostic(
+      "custom-directive-value-unresolved",
+      `The value of attribute "${name}" declared for v-${prop.name} could not be resolved from its bound expression.`,
+      anchorLoc,
+      "info",
+    );
+    return {
+      name,
+      value: dummyValue("", name),
+      nameRange: this.sourceRange(prop.loc),
+      valueRange: anchorRange,
+      provenance,
     };
   }
 
@@ -1127,10 +1382,11 @@ class Renderer {
     code: string,
     message: string,
     loc: SourceLocation,
+    severity: CoreDiagnostic["severity"] = "warning",
   ): void {
     this.options.diagnostics.push({
       code,
-      severity: "warning",
+      severity,
       message,
       sourceRange: this.sourceRange(loc),
     });

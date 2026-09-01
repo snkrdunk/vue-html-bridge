@@ -6,6 +6,7 @@ import {
   generateSettingsJsonSchema,
   serializeSettingsJsonSchema,
 } from "./json-schema.js";
+import { ATTRIBUTE_NAME_PATTERN } from "./resolve.js";
 
 const schemaJsonPath = new URL("../schema.json", import.meta.url);
 
@@ -26,6 +27,9 @@ describe("generateSettingsJsonSchema", () => {
     expect(properties.customElements?.default).toEqual(
       DEFAULT_SETTINGS.customElements,
     );
+    expect(properties.customDirectives?.default).toEqual(
+      DEFAULT_SETTINGS.customDirectives,
+    );
     expect(properties.externalAdapters?.default).toBe(
       DEFAULT_SETTINGS.externalAdapters,
     );
@@ -43,6 +47,45 @@ describe("generateSettingsJsonSchema", () => {
 
   it("is deterministic across calls", () => {
     expect(serializeSettingsJsonSchema()).toBe(serializeSettingsJsonSchema());
+  });
+
+  it("constrains customDirectives attribute keys and value templates as an editor-level hint agreeing with resolveSettings", () => {
+    const schema = generateSettingsJsonSchema();
+    const properties = schema.properties as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const items = properties.customDirectives?.items as {
+      properties: Record<string, Record<string, unknown>>;
+    };
+    const attributes = items.properties.attributes!;
+    expect(attributes.propertyNames).toEqual({
+      pattern: ATTRIBUTE_NAME_PATTERN.source,
+    });
+
+    // JSON Schema `pattern` is unanchored `RegExp.test` semantics, so the
+    // editor-level hint is exercised the same way resolve.test.ts's own
+    // accept/reject cases exercise the authoritative validation.
+    const template = attributes.additionalProperties as {
+      type: string;
+      pattern: string;
+    };
+    const pattern = new RegExp(template.pattern);
+    for (const accepted of ["$value", "$value.src", "$value.a.b"]) {
+      expect(pattern.test(accepted)).toBe(true);
+    }
+    for (const accepted of ["status", "true", "a$b", ""]) {
+      expect(pattern.test(accepted)).toBe(true);
+    }
+    for (const rejected of [
+      "$valuefoo",
+      "$value[0]",
+      "$value..a",
+      "$value.",
+      "x$valuex",
+    ]) {
+      expect(pattern.test(rejected)).toBe(false);
+    }
   });
 });
 

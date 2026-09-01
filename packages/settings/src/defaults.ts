@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: ResolvedVueHtmlBridgeSettings = Object.freeze({
   maxConcurrency: undefined,
   warnVariantCount: undefined,
   customElements: Object.freeze([]),
+  customDirectives: Object.freeze([]),
   externalAdapters: "disabled",
   validators: Object.freeze([
     Object.freeze({ adapter: "markuplint", enabled: true }),

@@ -49,6 +49,7 @@ function baseSettings(
     maxConcurrency: undefined,
     warnVariantCount: undefined,
     customElements: [],
+    customDirectives: [],
     externalAdapters: "disabled",
     validators: [{ adapter: "markuplint", enabled: true }],
     ...overrides,

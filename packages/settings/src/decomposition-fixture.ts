@@ -27,6 +27,7 @@ export const SETTINGS_DECOMPOSITION_FIXTURE: {
     maxConcurrency: 3,
     warnVariantCount: undefined,
     customElements: ["my-widget"],
+    customDirectives: [{ name: "src", attributes: { src: "$value" } }],
     externalAdapters: "trusted-workspace-only",
     validators: [
       { adapter: "markuplint", enabled: true },
@@ -40,6 +41,7 @@ export const SETTINGS_DECOMPOSITION_FIXTURE: {
   decomposed: {
     generateOptions: {
       customElements: ["my-widget"],
+      customDirectives: [{ name: "src", attributes: { src: "$value" } }],
     },
     analyzer: {
       maxConcurrency: 3,

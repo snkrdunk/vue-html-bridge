@@ -18,6 +18,14 @@ describe("decomposeSettings: table parity (§8 item 7)", () => {
     expect(result.analyzer).toEqual({});
   });
 
+  it("routes customDirectives as an always-present passthrough, like customElements, never omitted", () => {
+    const result = decomposeSettings(DEFAULT_SETTINGS);
+    expect(Object.hasOwn(result.generateOptions, "customDirectives")).toBe(
+      true,
+    );
+    expect(result.generateOptions.customDirectives).toEqual([]);
+  });
+
   it("keeps a delegated field when it is explicitly set", () => {
     const result = decomposeSettings({
       ...DEFAULT_SETTINGS,
@@ -28,6 +36,7 @@ describe("decomposeSettings: table parity (§8 item 7)", () => {
     expect(result.generateOptions).toEqual({
       warnVariantCount: 512,
       customElements: [],
+      customDirectives: [],
     });
   });
 

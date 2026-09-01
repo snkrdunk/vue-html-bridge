@@ -23,10 +23,47 @@ import {
   KNOWN_SETTINGS_FIELDS,
   RESERVED_SETTINGS_FIELDS,
   type KnownSettingsField,
+  type ResolvedCustomDirectiveSetting,
   type ResolvedValidatorSetting,
   type ResolvedVueHtmlBridgeSettings,
   type SettingsIssue,
 } from "./schema.js";
+
+/**
+ * Duplicated intentionally from core's `ATTRIBUTE_NAME_PATTERN` /
+ * `VALUE_PATH_PATTERN` / `RESERVED_DIRECTIVE_NAMES` (plan.md §2, ADR-0010):
+ * this package has zero internal runtime dependencies (settings.md §2), so
+ * it cannot import core's copies at runtime. `contract.test.ts` pins the
+ * two regexes' `.source` and the reserved-name set against core's real
+ * exports so the two copies can never drift apart silently.
+ */
+export const ATTRIBUTE_NAME_PATTERN = /^[a-zA-Z][\w:-]*$/;
+export const VALUE_PATH_PATTERN = /^\$value(?:\.[A-Za-z_$][\w$]*)*$/;
+export const RESERVED_DIRECTIVE_NAMES: ReadonlySet<string> = new Set([
+  "bind",
+  "on",
+  "model",
+  "text",
+  "html",
+  "slot",
+  "pre",
+  "if",
+  "else-if",
+  "else",
+  "for",
+  "show",
+  "once",
+  "memo",
+  "cloak",
+]);
+
+/** Matches `DirectiveNode.name`'s actual character set (plan.md §2). */
+const CUSTOM_DIRECTIVE_NAME_PATTERN = /^[A-Za-z][\w-]*$/;
+
+/** Mirrors core's `camelize`, so duplicate detection matches core's camelized lookup. */
+function camelizeDirectiveName(name: string): string {
+  return name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
 
 export function resolveSettings(layers: readonly unknown[]): {
   settings: ResolvedVueHtmlBridgeSettings;
@@ -69,6 +106,9 @@ export function resolveSettings(layers: readonly unknown[]): {
     customElements:
       resolveField(validatedLayers, "customElements") ??
       DEFAULT_SETTINGS.customElements,
+    customDirectives:
+      resolveField(validatedLayers, "customDirectives") ??
+      DEFAULT_SETTINGS.customDirectives,
     externalAdapters:
       resolveField(validatedLayers, "externalAdapters") ??
       DEFAULT_SETTINGS.externalAdapters,
@@ -94,6 +134,7 @@ interface ValidatedLayer {
   maxConcurrency?: number;
   warnVariantCount?: number;
   customElements?: readonly string[];
+  customDirectives?: readonly ResolvedCustomDirectiveSetting[];
   externalAdapters?: "disabled" | "trusted-workspace-only";
   validators?: readonly ResolvedValidatorSetting[];
 }
@@ -225,6 +266,12 @@ function validateLayer(raw: unknown): {
           DEFAULT_SETTINGS.customElements,
         );
         layer.customElements = result.value;
+        issues.push(...result.issues);
+        break;
+      }
+      case "customDirectives": {
+        const result = validateCustomDirectives(rawValue);
+        layer.customDirectives = result.value;
         issues.push(...result.issues);
         break;
       }
@@ -405,6 +452,98 @@ function validateValidators(
   return { value: items, issues };
 }
 
+/**
+ * Mirrors `validateValidators` exactly (per-item validation, first entry
+ * wins on collision) — plan.md §2. `attributes` keys and value templates
+ * get the same per-item-drop treatment as one bad `validators[]` entry: an
+ * invalid attribute key or template drops just that attribute, not the
+ * whole `customDirectives[]` entry, unless nothing valid is left.
+ */
+function validateCustomDirectives(
+  raw: unknown,
+): FieldOutcome<readonly ResolvedCustomDirectiveSetting[]> {
+  if (!Array.isArray(raw)) {
+    return invalid(
+      DEFAULT_SETTINGS.customDirectives,
+      invalidType("customDirectives", "an array"),
+    );
+  }
+  const issues: SettingsIssue[] = [];
+  const items: ResolvedCustomDirectiveSetting[] = [];
+  const seenCamelNames = new Set<string>();
+
+  raw.forEach((rawItem: unknown, index: number) => {
+    const path = `customDirectives[${index}]`;
+    if (!isPlainObject(rawItem)) {
+      issues.push(invalidType(path, "an object"));
+      return;
+    }
+    const name = rawItem.name;
+    if (typeof name !== "string" || !CUSTOM_DIRECTIVE_NAME_PATTERN.test(name)) {
+      issues.push(
+        invalidType(
+          `${path}.name`,
+          "a directive name starting with a letter (letters, digits, underscore, hyphen)",
+        ),
+      );
+      return;
+    }
+    const camelName = camelizeDirectiveName(name);
+    if (RESERVED_DIRECTIVE_NAMES.has(camelName)) {
+      issues.push(reservedCustomDirective(`${path}.name`, name));
+      return;
+    }
+    if (seenCamelNames.has(camelName)) {
+      issues.push(duplicateCustomDirective(`${path}.name`, name));
+      return; // first entry wins (settings.md §3.1 precedent)
+    }
+    if (!isPlainObject(rawItem.attributes)) {
+      issues.push(invalidType(`${path}.attributes`, "an object"));
+      return;
+    }
+    const attributes: Record<string, string> = {};
+    for (const [attrName, template] of Object.entries(rawItem.attributes)) {
+      if (!ATTRIBUTE_NAME_PATTERN.test(attrName)) {
+        issues.push(
+          invalidType(
+            `${path}.attributes["${attrName}"]`,
+            "a valid attribute name",
+          ),
+        );
+        continue;
+      }
+      if (typeof template !== "string") {
+        issues.push(invalidType(`${path}.attributes.${attrName}`, "a string"));
+        continue;
+      }
+      if (template.includes("$value") && !VALUE_PATH_PATTERN.test(template)) {
+        issues.push(
+          invalidType(
+            `${path}.attributes.${attrName}`,
+            '"$value" optionally followed by dotted property segments (e.g. "$value.src"), or a literal string containing no "$value"',
+          ),
+        );
+        continue;
+      }
+      attributes[attrName] = template;
+    }
+    if (Object.keys(attributes).length === 0) {
+      issues.push(
+        invalidType(
+          `${path}.attributes`,
+          "a non-empty object of valid attribute value templates",
+        ),
+      );
+      return;
+    }
+
+    seenCamelNames.add(camelName);
+    items.push({ name, attributes });
+  });
+
+  return { value: items, issues };
+}
+
 // ---------------------------------------------------------------------------
 // Issue constructors
 // ---------------------------------------------------------------------------
@@ -437,6 +576,24 @@ function duplicateAdapter(path: string, adapter: string): SettingsIssue {
     code: "duplicate-adapter",
     path,
     message: `Duplicate validator entry for adapter "${adapter}"; the first entry wins.`,
+  };
+}
+
+function reservedCustomDirective(path: string, name: string): SettingsIssue {
+  return {
+    severity: "error",
+    code: "reserved-custom-directive",
+    path,
+    message: `customDirectives entry "${name}" names a reserved built-in directive and was ignored.`,
+  };
+}
+
+function duplicateCustomDirective(path: string, name: string): SettingsIssue {
+  return {
+    severity: "error",
+    code: "duplicate-custom-directive",
+    path,
+    message: `Duplicate customDirectives entry for directive "${name}" (after camelizing); the first entry wins.`,
   };
 }
 

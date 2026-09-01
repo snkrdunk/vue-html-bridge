@@ -89,6 +89,7 @@ Every settings field is either mapped to a flag or explicitly listed as not appl
 | `maxConcurrency` | `--max-concurrency <n>` | Passed to the analyzer |
 | `warnVariantCount` | `--warn-variant-count <n>` | Passed to core's `GenerateOptions` |
 | `customElements` | repeatable `--custom-elements <tag|glob>` | Replaces the config value |
+| `customDirectives` | — | Config-file only (core.md §5.3.1, ADR-0010). Like `validators[].settings`, this field is at least as rich as `validators[]` (nested per-item object with its own value-template grammar); `validators[]` needed three dedicated flags plus dotted-path/deep-set machinery for a comparably rich field, and cli.md's own guidance is that nested/rich fields belong in the config file |
 | `externalAdapters` | `--external-adapters <disabled|trusted-workspace-only>` | See §5 |
 | `validators[].enabled` | repeatable `--validator <entry-key>`, repeatable `--disable-validator <entry-key>` | See §4.3 |
 | `validators[].settings` | repeatable `--validator-setting <entry-key>.<path>=<value>` | See §4.3 |
@@ -130,7 +131,7 @@ Running the CLI inside a repository is an explicit act — the same act as runni
 `--untrusted` restricts exactly the settings that can cause workspace code to run, mirroring language-server.md §4.2:
 
 - **Forced:** `externalAdapters` is treated as `"disabled"`, and the built-in Markuplint adapter runs with its bundled safe default config (no `configFile`, forced `searchConfig: false`, no workspace JS config or plugins).
-- **Unaffected:** every host-neutral setting keeps its normal precedence — file selection (`include`/`exclude`/positional args), `maxConcurrency`, `warnVariantCount`, `customElements`, output format, `--fail-on`, and exit behavior.
+- **Unaffected:** every host-neutral setting keeps its normal precedence — file selection (`include`/`exclude`/positional args), `maxConcurrency`, `warnVariantCount`, `customElements`, `customDirectives`, output format, `--fail-on`, and exit behavior. Declaring a `customDirectives` mapping never runs code — it is a declarative value template evaluated by core's existing side-effect-free expression evaluator (core.md §5.3.1) — so trust never gates it.
 
 One stderr notice states that *workspace validator configuration and external adapters* are being ignored — not the bridge settings as a whole. `--untrusted` wins over any conflicting trust-related flag or setting (for example an explicit `--external-adapters trusted-workspace-only`); it does not override anything else. This mode is intended for CI jobs that analyze untrusted contributions.
 
@@ -290,7 +291,7 @@ Precedence: signal code > 2 > 1 > 0. A misconfigured CI job must never pass as "
 9. Run outcome model: multi-file × multi-adapter fixture where one adapter's session fails — the failure appears once at run level, the other adapter's diagnostics and other files' results survive in the output, exit is 2. File read error behaves the same way.
 10. Exit codes: `--fail-on` threshold interactions across all severities; run-level error dominance; `--fail-on never`.
 11. Signals: SIGINT mid-analysis (abort, no partial rendering for the file being analyzed when the signal arrived; in NDJSON mode `meta` plus any already-completed `file`/`runError` lines remain on stdout with no trailing `summary` line; exit 130; sessions disposed); SIGTERM → 143; a second signal during cleanup exits immediately.
-12. `--untrusted` combinations: trust-sensitive settings are forced (bundled Markuplint defaults, no external adapters) while shared safe settings (`include`/`exclude`, `warnVariantCount`, `maxConcurrency`, `customElements`, output flags) still apply from the same config; behavior matches the language server's restricted session on the same fixture.
+12. `--untrusted` combinations: trust-sensitive settings are forced (bundled Markuplint defaults, no external adapters) while shared safe settings (`include`/`exclude`, `warnVariantCount`, `maxConcurrency`, `customElements`, `customDirectives`, output flags) still apply from the same config; behavior matches the language server's restricted session on the same fixture.
 13. External adapter loading: the shared loader's gates apply identically to the language server's (contract-tested against adapter-loader.md); a load failure disables only that adapter and is reported once.
 14. E2E parity: on the language-server §13.3 fixture, both hosts are given the same trust policy, the same `resolveSettings` output (settings and issues compared), the same adapter loader results, and identical content (disk file == LSP buffer) — and report the same source diagnostics (code, range, severity, adapterId). A second, restricted-mode parity run asserts the same under `--untrusted` / an untrusted LSP workspace.
 

@@ -1,4 +1,13 @@
 import { DEFAULT_SETTINGS } from "./defaults.js";
+import { ATTRIBUTE_NAME_PATTERN, VALUE_PATH_PATTERN } from "./resolve.js";
+
+/**
+ * JSON-schema `pattern` for one `customDirectives` value template: either a
+ * literal constant containing no `$value` occurrence, or the `$value`
+ * dotted-path grammar. Editor-level hint only — `resolveSettings` performs
+ * the authoritative validation (settings.md §3.1).
+ */
+const VALUE_TEMPLATE_JSON_PATTERN = `^(?:[^$]|\\$(?!value))*$|${VALUE_PATH_PATTERN.source}`;
 
 /**
  * A minimal, hand-rolled JSON Schema value type — this package doesn't
@@ -90,6 +99,35 @@ export function generateSettingsJsonSchema(): JsonSchemaValue {
         items: { type: "string" },
         default: DEFAULT_SETTINGS.customElements,
         description: "Tag names or globs treated as known custom elements.",
+      },
+      customDirectives: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              pattern: "^[A-Za-z][\\w-]*$",
+              description:
+                'The directive name without "v-" (e.g. "src", "imgAttr"); matched camelized.',
+            },
+            attributes: {
+              type: "object",
+              propertyNames: { pattern: ATTRIBUTE_NAME_PATTERN.source },
+              additionalProperties: {
+                type: "string",
+                pattern: VALUE_TEMPLATE_JSON_PATTERN,
+              },
+              description:
+                'Attribute name -> value template: a literal string constant, or "$value" optionally followed by dotted property segments (e.g. "$value.src").',
+            },
+          },
+          required: ["name", "attributes"],
+          additionalProperties: false,
+        },
+        default: DEFAULT_SETTINGS.customDirectives,
+        description:
+          "Declares which attributes a custom directive sets and how to derive each value from the directive's bound expression.",
       },
       externalAdapters: {
         type: "string",

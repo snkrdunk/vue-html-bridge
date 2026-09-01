@@ -1,9 +1,16 @@
 export const PACKAGE_NAME = "vue-html-bridge";
 
-export { createTypeAnalysisContext, generateVariants } from "./generate.js";
+export {
+  ATTRIBUTE_NAME_PATTERN,
+  RESERVED_DIRECTIVE_NAMES,
+  VALUE_PATH_PATTERN,
+  createTypeAnalysisContext,
+  generateVariants,
+} from "./generate.js";
 export { findSourceOrigins } from "./mapping.js";
 export type {
   CoreDiagnostic,
+  CustomDirectiveMapping,
   DecisionAssignment,
   GenerateOptions,
   GenerateRequest,
