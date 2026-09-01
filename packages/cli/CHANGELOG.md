@@ -1,5 +1,14 @@
 # @vue-html-bridge/cli
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [d732894]
+  - @vue-html-bridge/settings@0.2.0
+  - @vue-html-bridge/analyzer@0.1.1
+  - @vue-html-bridge/adapter-loader@0.1.0
+
 ## 0.1.0
 
 ### Minor Changes

@@ -1,5 +1,13 @@
 # @vue-html-bridge/analyzer
 
+## 0.1.1
+
+### Patch Changes
+
+- d732894: Add custom-directive attribute value modeling (ADR-0010). A new `customDirectives` setting (and core `GenerateOptions` field) declares which attributes a custom directive sets and how to derive each value from its bound expression — a literal string constant, or `$value` optionally followed by dotted property segments — closing the `required-attr` false-positive class for attribute-setting directives like `v-src`. The analyzer's generation-cache key now includes `customDirectives`, so two runs differing only in declared mappings can no longer collide on one cache entry.
+- Updated dependencies [d732894]
+  - vue-html-bridge@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes
