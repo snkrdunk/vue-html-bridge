@@ -27,6 +27,11 @@ import {
 } from "./diagnostics.js";
 import { enumerateFiles } from "./enumerate.js";
 import {
+  formatEmitHtmlNotice,
+  prepareEmitHtmlDir,
+  writeVariantArtifacts,
+} from "./emit-html.js";
+import {
   computeExitCode,
   EXIT_RUN_ERROR,
   severityMeetsThreshold,
@@ -54,6 +59,8 @@ export interface RunCliOptions {
   failOn: FailOnThreshold;
   signal: AbortSignal;
   renderer: OutputRenderer;
+  /** `--emit-html <dir>` (plan.md T5, ADR-0011). Opt-in; undefined = no behavior change (REQ-8). */
+  emitHtmlDir?: string;
   /** stderr-only notices (untrusted-mode banner, pre-analysis "no analyzable input") — always stderr regardless of `--format` (cli.md §2, §7.2 stdout validity). */
   notice: (message: string) => void;
   /** Injectable for tests (adapter-loader.md §6 item 8's shared contract fixture, adapter-testkit's fake adapter). */
@@ -125,7 +132,15 @@ export async function runCli(options: RunCliOptions): Promise<RunCliResult> {
     generateOptions: decomposed.generateOptions,
     maxConcurrency: decomposed.analyzer.maxConcurrency,
     logger: options.logger,
+    collectVariantArtifacts: options.emitHtmlDir !== undefined,
   });
+
+  // Q4 pre-run lifecycle: prepared once, before the per-file loop (cli.md
+  // §6). A setup failure (e.g. permission denied) is reported once at run
+  // level and disables emit-html for the rest of this run — it does not
+  // abort analysis of the files themselves (failure isolation, cli.md §8).
+  let emitHtmlReady = options.emitHtmlDir !== undefined;
+  let emitHtmlFilesWritten = 0;
 
   const counts: RunSummaryCounts = {
     filesAnalyzed: 0,
@@ -150,6 +165,21 @@ export async function runCli(options: RunCliOptions): Promise<RunCliResult> {
         { code: `adapter-load/${failure.kind}`, message: failure.message },
         `adapter-load:${failure.dedupeKey}`,
       );
+    }
+
+    if (options.emitHtmlDir !== undefined) {
+      try {
+        await prepareEmitHtmlDir(options.emitHtmlDir);
+      } catch (error) {
+        emitHtmlReady = false;
+        reportRunError(
+          {
+            code: "emit-html/setup-error",
+            message: `Failed to prepare "--emit-html" directory "${options.emitHtmlDir}": ${errorMessage(error)}`,
+          },
+          "emit-html-setup",
+        );
+      }
     }
 
     for (const absolutePath of enumerated.files) {
@@ -233,9 +263,40 @@ export async function runCli(options: RunCliOptions): Promise<RunCliResult> {
       }
       counts.filesAnalyzed += 1;
       options.renderer.file(relPath, projected);
+
+      if (
+        emitHtmlReady &&
+        options.emitHtmlDir !== undefined &&
+        result.variantArtifacts !== undefined
+      ) {
+        try {
+          emitHtmlFilesWritten += await writeVariantArtifacts({
+            dir: options.emitHtmlDir,
+            workspaceRoot: options.workspaceRoot,
+            artifacts: result.variantArtifacts,
+          });
+        } catch (error) {
+          // Failure isolation (cli.md §8): one file's write failure must not
+          // abort analysis of the remaining files.
+          reportRunError(
+            {
+              code: "emit-html/write-error",
+              message: `Failed to write "--emit-html" output for "${relPath}": ${errorMessage(error)}`,
+              path: relPath,
+            },
+            `emit-html-write:${relPath}`,
+          );
+        }
+      }
     }
   } finally {
     await disposeBounded(analyzer);
+  }
+
+  if (options.emitHtmlDir !== undefined && emitHtmlReady) {
+    options.notice(
+      formatEmitHtmlNotice(options.emitHtmlDir, emitHtmlFilesWritten),
+    );
   }
 
   if (options.signal.aborted) {

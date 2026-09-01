@@ -5,15 +5,24 @@
 // adapters injected through the `builtins` map — the same "real except for
 // a deliberate failure injection" discipline as
 // packages/language-server/src/e2e.test.ts.
-import { chmod, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFakeAdapter } from "@vue-html-bridge/adapter-testkit/fake";
 import { createNoBlinkAdapter } from "@vue-html-bridge/adapter-testkit";
 import type { ResolvedVueHtmlBridgeSettings } from "@vue-html-bridge/settings";
 import type { HtmlValidatorAdapter } from "@vue-html-bridge/validator-api";
+import * as emitHtml from "./emit-html.js";
 import { createNdjsonRenderer, type CliNdjsonRecord } from "./output/ndjson.js";
 import { runCli, toFileUri } from "./runner.js";
 import type {
@@ -22,8 +31,21 @@ import type {
   RunSummaryCounts,
 } from "./types.js";
 
+// plan.md T5 REQ-8 negative test: spies wrap the *real* implementation
+// (importOriginal) so every other test in this file still gets real disk
+// behavior — only the --emit-html describe block below asserts on calls.
+vi.mock("./emit-html.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./emit-html.js")>();
+  return {
+    ...actual,
+    prepareEmitHtmlDir: vi.fn(actual.prepareEmitHtmlDir),
+    writeVariantArtifacts: vi.fn(actual.writeVariantArtifacts),
+  };
+});
+
 const tempDirs: string[] = [];
 afterEach(async () => {
+  vi.clearAllMocks();
   await Promise.all(
     tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
   );
@@ -413,5 +435,116 @@ describe("runCli: signal abort propagation (cli.md §6 'Signals', §9 item 11)",
     const records = lines.map((line) => JSON.parse(line) as CliNdjsonRecord);
     expect(records[0]).toEqual({ type: "meta", version: 1 });
     expect(records.some((record) => record.type === "summary")).toBe(false);
+  });
+});
+
+describe("runCli: --emit-html wiring (plan.md T5)", () => {
+  it("writes variant artifacts per analyzed file and emits the one-line stderr notice, when emitHtmlDir is set", async () => {
+    const root = await tempWorkspace();
+    await writeFile(join(root, "A.vue"), "<template><div>x</div></template>");
+    const outDir = join(
+      root,
+      "..",
+      "emit-out-" + Math.random().toString(36).slice(2),
+    );
+    tempDirs.push(outDir);
+
+    const notices: string[] = [];
+    const renderer = recordingRenderer();
+    const result = await runCli({
+      workspaceRoot: root,
+      cwd: root,
+      positionalArgs: [],
+      settings: baseSettings({ validators: [] }),
+      workspaceTrusted: true,
+      failOn: "error",
+      signal: new AbortController().signal,
+      renderer,
+      notice: (message) => notices.push(message),
+      builtins: new Map(),
+      emitHtmlDir: outDir,
+    });
+
+    expect(result).toEqual({ interrupted: false, exitCode: 0 });
+    expect(emitHtml.prepareEmitHtmlDir).toHaveBeenCalledWith(outDir);
+    expect(emitHtml.writeVariantArtifacts).toHaveBeenCalledTimes(1);
+    expect(notices.some((n) => n.includes("--emit-html"))).toBe(true);
+
+    // The hash segment isn't known ahead of time — read it back off disk.
+    const written = await readdir(join(outDir, "A.vue.__vue_html_bridge__"));
+    expect(written.some((name) => name.endsWith(".html"))).toBe(true);
+    expect(written.some((name) => name.endsWith(".json"))).toBe(true);
+    const htmlFile = written.find((name) => name.endsWith(".html"))!;
+    expect(
+      await readFile(
+        join(outDir, "A.vue.__vue_html_bridge__", htmlFile),
+        "utf8",
+      ),
+    ).toBe("<div>x</div>");
+  });
+
+  it("REQ-8 negative case: neither prepareEmitHtmlDir nor writeVariantArtifacts is ever called when emitHtmlDir is omitted", async () => {
+    const root = await tempWorkspace();
+    await writeFile(join(root, "A.vue"), "<template><div>x</div></template>");
+
+    const renderer = recordingRenderer();
+    const result = await runCli({
+      workspaceRoot: root,
+      cwd: root,
+      positionalArgs: [],
+      settings: baseSettings({ validators: [] }),
+      workspaceTrusted: true,
+      failOn: "error",
+      signal: new AbortController().signal,
+      renderer,
+      notice: () => {},
+      builtins: new Map(),
+      // emitHtmlDir intentionally omitted.
+    });
+
+    expect(result).toEqual({ interrupted: false, exitCode: 0 });
+    expect(emitHtml.prepareEmitHtmlDir).not.toHaveBeenCalled();
+    expect(emitHtml.writeVariantArtifacts).not.toHaveBeenCalled();
+  });
+
+  it("a per-file write failure is reported once as a run-level error, without aborting analysis of the remaining files", async () => {
+    const root = await tempWorkspace();
+    await writeFile(join(root, "A.vue"), "<template><div>x</div></template>");
+    await writeFile(join(root, "B.vue"), "<template><div>y</div></template>");
+    const outDir = join(
+      root,
+      "..",
+      "emit-fail-" + Math.random().toString(36).slice(2),
+    );
+    tempDirs.push(outDir);
+
+    vi.mocked(emitHtml.writeVariantArtifacts).mockRejectedValueOnce(
+      new Error("disk full"),
+    );
+
+    const renderer = recordingRenderer();
+    const result = await runCli({
+      workspaceRoot: root,
+      cwd: root,
+      positionalArgs: [],
+      settings: baseSettings({ validators: [] }),
+      workspaceTrusted: true,
+      failOn: "error",
+      signal: new AbortController().signal,
+      renderer,
+      notice: () => {},
+      builtins: new Map(),
+      emitHtmlDir: outDir,
+    });
+
+    expect(result).toEqual({ interrupted: false, exitCode: 2 });
+    expect(
+      renderer.runErrors.some((e) => e.code === "emit-html/write-error"),
+    ).toBe(true);
+    // Both files still analyzed and rendered — failure isolation.
+    expect(renderer.files.map((f) => f.path).sort()).toEqual([
+      "A.vue",
+      "B.vue",
+    ]);
   });
 });

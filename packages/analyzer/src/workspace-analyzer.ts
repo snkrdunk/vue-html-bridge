@@ -44,9 +44,14 @@ import type {
   CreateWorkspaceAnalyzerOptions,
   ReconfigureOptions,
   SourceDiagnostic,
+  VariantArtifact,
   WorkspaceAnalyzer,
 } from "./types.js";
-import { buildWorkItems } from "./work-deduplication.js";
+import {
+  buildWorkItems,
+  groupVariantsByHtml,
+  virtualFilename,
+} from "./work-deduplication.js";
 import { runBounded, type BoundedTask } from "./validation-queue.js";
 
 const DEFAULT_MAX_CONCURRENCY = 4;
@@ -63,6 +68,7 @@ export async function createWorkspaceAnalyzer(
   let generateOptions = options.generateOptions;
   const typeContext = options.typeContext;
   let maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
+  const collectVariantArtifacts = options.collectVariantArtifacts ?? false;
   let configuredAdapters = options.adapters;
   let entries = await createSessions(configuredAdapters, workspaceRoot, logger);
   let disposed = false;
@@ -140,6 +146,26 @@ export async function createWorkspaceAnalyzer(
     const variantById = new Map<string, HtmlVariant>(
       generated.variants.map((variant) => [variant.id, variant]),
     );
+
+    // Built independent of adapters/diagnostics (plan.md T2): populated even
+    // for zero adapters or a clean run with no diagnostics, since the point
+    // is showing generated HTML, not diagnostic-linked HTML.
+    const variantArtifacts: readonly VariantArtifact[] | undefined =
+      collectVariantArtifacts
+        ? groupVariantsByHtml(generated.variants).map((group) => {
+            const representative = variantById.get(group.variantIds[0]!);
+            return {
+              htmlHash: group.hash,
+              virtualFilename: virtualFilename(request.filename, group.hash),
+              html: group.html,
+              variants: group.variantIds.map((variantId) => ({
+                variantId,
+                decisions: variantById.get(variantId)?.decisions ?? [],
+              })),
+              map: representative?.map ?? [],
+            };
+          })
+        : undefined;
 
     const workItems = buildWorkItems(
       request.filename,
@@ -266,6 +292,7 @@ export async function createWorkspaceAnalyzer(
         warningThresholdExceeded: generated.stats.warningThresholdExceeded,
       },
       timing: { durationMs: performance.now() - started },
+      variantArtifacts,
     };
   }
 

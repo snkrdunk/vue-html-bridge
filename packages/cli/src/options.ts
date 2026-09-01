@@ -46,6 +46,8 @@ export interface ParsedCliOptions {
   positionalArgs: readonly string[];
   configPath?: string;
   workspaceRoot?: string;
+  /** `--emit-html <dir>` (plan.md T3, ADR-0011). Opt-in; undefined = no change to default behavior. */
+  emitHtmlDir?: string;
   format: OutputFormat;
   failOn: FailOnThreshold;
   untrusted: boolean;
@@ -105,6 +107,7 @@ export function parseArgv(argv: readonly string[]): ParseArgvResult {
   let externalAdapters: string | undefined;
   let configPath: string | undefined;
   let workspaceRoot: string | undefined;
+  let emitHtmlDir: string | undefined;
   let format: OutputFormat | undefined;
   let failOn: FailOnThreshold | undefined;
   let untrusted = false;
@@ -179,6 +182,12 @@ export function parseArgv(argv: readonly string[]): ParseArgvResult {
         const value = takeValue();
         if (value === undefined) return err(`"${token}" requires a value.`);
         workspaceRoot = value;
+        break;
+      }
+      case "--emit-html": {
+        const value = takeValue();
+        if (value === undefined) return err(`"${token}" requires a value.`);
+        emitHtmlDir = value;
         break;
       }
       case "--format": {
@@ -267,6 +276,7 @@ export function parseArgv(argv: readonly string[]): ParseArgvResult {
       positionalArgs,
       configPath,
       workspaceRoot,
+      emitHtmlDir,
       format: format ?? "text",
       failOn: failOn ?? "error",
       untrusted,
@@ -533,6 +543,10 @@ Validator flags:
 Other options:
   --config <path>            Explicit settings file; replaces discovery.
   --workspace-root <dir>     Default: the current working directory.
+  --emit-html <dir>          Write each generated HTML variant (plus a JSON
+                              decisions/mapping sidecar) under <dir>, for
+                              debugging (ADR-0011). Opt-in; no effect on
+                              default behavior when omitted.
   --format <text|ndjson>     Default: text.
   --fail-on <error|warning|info|hint|never>
                               Lowest severity that causes exit code 1. Default: error.
