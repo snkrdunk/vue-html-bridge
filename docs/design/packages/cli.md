@@ -102,6 +102,7 @@ Additional CLI-only options (not part of the settings schema):
 | --- | --- |
 | `--config <path>` | Explicit settings file; replaces discovery (§4.1) |
 | `--workspace-root <dir>` | Workspace root for config discovery, adapter sessions, the file-enumeration boundary, and relative output paths. Default: the current working directory. One root per invocation; multi-root is an LSP concept |
+| `--emit-html <dir>` | Debug dump (ADR-0011): writes every generated HTML variant, plus a JSON decisions/mapping sidecar, under `<dir>`, reusing the virtual-filename convention (§5.2 of analyzer.md). A relative `<dir>` resolves against `--workspace-root`, matching that flag's own documented role. Opt-in; omitting it leaves default behavior unchanged (no writes, no cache/perf cost) |
 | `--format <text|ndjson>` | Output format (§7). Default `text` |
 | `--fail-on <error|warning|info|hint|never>` | Lowest severity that causes exit code 1. Default `error` |
 | `--untrusted` | Run with the restricted trust behavior (§5) |
@@ -131,7 +132,7 @@ Running the CLI inside a repository is an explicit act — the same act as runni
 `--untrusted` restricts exactly the settings that can cause workspace code to run, mirroring language-server.md §4.2:
 
 - **Forced:** `externalAdapters` is treated as `"disabled"`, and the built-in Markuplint adapter runs with its bundled safe default config (no `configFile`, forced `searchConfig: false`, no workspace JS config or plugins).
-- **Unaffected:** every host-neutral setting keeps its normal precedence — file selection (`include`/`exclude`/positional args), `maxConcurrency`, `warnVariantCount`, `customElements`, `customDirectives`, output format, `--fail-on`, and exit behavior. Declaring a `customDirectives` mapping never runs code — it is a declarative value template evaluated by core's existing side-effect-free expression evaluator (core.md §5.3.1) — so trust never gates it.
+- **Unaffected:** every host-neutral setting keeps its normal precedence — file selection (`include`/`exclude`/positional args), `maxConcurrency`, `warnVariantCount`, `customElements`, `customDirectives`, output format, `--fail-on`, and exit behavior. Declaring a `customDirectives` mapping never runs code — it is a declarative value template evaluated by core's existing side-effect-free expression evaluator (core.md §5.3.1) — so trust never gates it. `--emit-html` (ADR-0011) is likewise unaffected: it runs no additional workspace code and only writes a deterministic transform of source the invocation already has access to, to a location the operator (not analyzed content) names via their own flag.
 
 One stderr notice states that *workspace validator configuration and external adapters* are being ignored — not the bridge settings as a whole. `--untrusted` wins over any conflicting trust-related flag or setting (for example an explicit `--external-adapters trusted-workspace-only`); it does not override anything else. This mode is intended for CI jobs that analyze untrusted contributions.
 
@@ -265,7 +266,8 @@ The run outcome model distinguishes **diagnostics** (per-file analysis results, 
 - a session-level adapter failure (`adapter/<id>/configuration-error`, `validator-unavailable`), keyed by adapter + code — the analyzer also places it as a source diagnostic per analyzed file, but the CLI reports it once at run level and does not repeat it per file;
 - an adapter load failure from the shared loader, keyed by its dedupe key (adapter-loader.md);
 - a file read error, keyed by path;
-- an internal error.
+- an internal error;
+- `--emit-html` (ADR-0011): `emit-html/setup-error` once per run if preparing `<dir>` fails (disables `--emit-html` for the rest of that run, but does not abort file analysis); `emit-html/write-error` per affected file if writing that file's output fails (failure-isolated, like a file read error).
 
 After a run-level error, everything unaffected continues: other adapters keep validating, other files keep being analyzed, and every result already produced stays in the output (text and NDJSON alike). The error only determines the exit code.
 

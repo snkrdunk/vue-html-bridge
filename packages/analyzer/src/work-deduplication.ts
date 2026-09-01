@@ -24,16 +24,16 @@ export function virtualFilename(
   return `${sourceFilename}.__vue_html_bridge__/variant-${htmlHash}.html`;
 }
 
-/**
- * Groups variants sharing identical HTML into one work item per adapter.
- * Deliberately not shared across adapters (§5.1): each adapter gets its own
- * work-item list, even for the same HTML content.
- */
-export function buildWorkItems(
-  sourceFilename: string,
+export interface VariantHtmlGroup {
+  html: string;
+  hash: string;
+  variantIds: readonly string[];
+}
+
+/** Groups variants sharing identical HTML content, keyed by content hash. */
+export function groupVariantsByHtml(
   variants: readonly HtmlVariant[],
-  adapterIds: readonly string[],
-): readonly ValidationWorkItem[] {
+): readonly VariantHtmlGroup[] {
   const byHtml = new Map<
     string,
     { html: string; hash: string; variantIds: string[] }
@@ -47,7 +47,20 @@ export function buildWorkItems(
       byHtml.set(hash, { html: variant.html, hash, variantIds: [variant.id] });
     }
   }
-  const groups = [...byHtml.values()];
+  return [...byHtml.values()];
+}
+
+/**
+ * Groups variants sharing identical HTML into one work item per adapter.
+ * Deliberately not shared across adapters (§5.1): each adapter gets its own
+ * work-item list, even for the same HTML content.
+ */
+export function buildWorkItems(
+  sourceFilename: string,
+  variants: readonly HtmlVariant[],
+  adapterIds: readonly string[],
+): readonly ValidationWorkItem[] {
+  const groups = groupVariantsByHtml(variants);
   const items: ValidationWorkItem[] = [];
   for (const adapterId of adapterIds) {
     for (const group of groups) {

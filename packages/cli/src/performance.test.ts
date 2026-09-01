@@ -83,3 +83,58 @@ describe("release-build regression benchmark: analyzer.analyze() end to end, rea
     }
   });
 });
+
+// plan.md T7 / TC-REQ8-C: collectVariantArtifacts must be a true no-op when
+// left at its default (omitted) — the same cold/warm budgets above must
+// still hold for at least one representative fixture with the option
+// explicitly false, proving REQ-8 ("no cache/perf cost for the default
+// run") isn't just incidentally true because no test happens to pass the
+// option.
+describe("release-build regression benchmark: collectVariantArtifacts omitted stays within budget (REQ-8/TC-REQ8-C)", () => {
+  it("a representative fixture stays within the same cold/warm budgets with collectVariantArtifacts: false", async () => {
+    const [file] = (await readdir(playgroundDir)).filter((f) =>
+      f.endsWith(".vue"),
+    );
+    if (file === undefined) throw new Error("no playground fixtures found");
+    const filename = join(playgroundDir, file);
+    const source = await readFile(filename, "utf8");
+    const uri = pathToFileURL(filename).toString();
+
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: playgroundDir,
+      adapters: [{ adapter: markuplintAdapter, settings: {}, enabled: true }],
+      typeContext: createTypeAnalysisContext(),
+      collectVariantArtifacts: false,
+    });
+
+    const coldStart = performance.now();
+    const coldResult = await analyzer.analyze({
+      uri,
+      filename,
+      source,
+      signal: new AbortController().signal,
+    });
+    const coldDurationMs = performance.now() - coldStart;
+    expect(
+      coldDurationMs,
+      `${file} (cold) took ${coldDurationMs.toFixed(2)}ms`,
+    ).toBeLessThan(COLD_BUDGET_MS);
+    expect(coldResult.variantArtifacts).toBeUndefined();
+
+    const warmStart = performance.now();
+    const warmResult = await analyzer.analyze({
+      uri,
+      filename,
+      source,
+      signal: new AbortController().signal,
+    });
+    const warmDurationMs = performance.now() - warmStart;
+    expect(
+      warmDurationMs,
+      `${file} (warm/cached) took ${warmDurationMs.toFixed(2)}ms`,
+    ).toBeLessThan(WARM_BUDGET_MS);
+    expect(warmResult.variantArtifacts).toBeUndefined();
+
+    await analyzer.dispose();
+  });
+});
