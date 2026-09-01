@@ -103,7 +103,7 @@ export interface SourceOrigin {
 
 export interface CoreDiagnostic {
   code: string;
-  severity: "error" | "warning" | "info";
+  severity: "error" | "warning" | "info" | "hint";
   message: string;
   sourceRange: SourceRange;
   relatedRanges?: readonly SourceRange[];
