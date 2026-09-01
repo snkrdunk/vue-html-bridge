@@ -1,5 +1,12 @@
 # @vue-html-bridge/cli
 
+## 0.1.2
+
+### Patch Changes
+
+- @vue-html-bridge/analyzer@0.1.2
+  - @vue-html-bridge/settings@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes
