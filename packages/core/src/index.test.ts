@@ -355,3 +355,340 @@ b">a
     expect(result.diagnostics[0]?.code).toBe("unsupported-template-source");
   });
 });
+
+// plan.md "Custom-directive attribute value modeling ('Plan B')" / ADR-0010.
+describe("generateVariants: custom-directive attribute value modeling", () => {
+  it("resolves a single attribute from a literal bound expression", async () => {
+    const source = `<template><img v-src="'/icon.svg'" alt="icon" /></template>`;
+    const result = await generateVariants({
+      filename: "/p/Single.vue",
+      source,
+      options: {
+        customDirectives: [{ name: "src", attributes: { src: "$value" } }],
+      },
+    });
+    expect(result.variants[0]?.html).toBe('<img alt="icon" src="/icon.svg">');
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("fans out multiple attributes from one bound object expression, keeping a constant attribute source-literal while its value-path siblings share the bound expression's provenance", async () => {
+    const source = `<script setup lang="ts">
+defineProps<{ status: "a" | "b" }>();
+</script>
+<template><img v-img-attr="{ src: status, height: 24 }" /></template>`;
+    const result = await generateVariants({
+      filename: "/p/ImgAttr.vue",
+      source,
+      options: {
+        customDirectives: [
+          {
+            name: "imgAttr",
+            attributes: {
+              src: "$value.src",
+              height: "$value.height",
+              role: "img",
+            },
+          },
+        ],
+      },
+    });
+    expect(result.variants).toHaveLength(2);
+    const variantA = result.variants.find(
+      (variant) => variant.decisions[0]?.value === "a",
+    );
+    expect(variantA?.html).toBe('<img height="24" role="img" src="a">');
+    const attributeValues = variantA!.map.filter(
+      (entry) => entry.kind === "attribute-value",
+    );
+    expect(attributeValues.map((entry) => entry.provenance.kind)).toEqual([
+      "finite-domain", // height
+      "source-literal", // role (constant)
+      "finite-domain", // src
+    ]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("falls back to a placeholder plus an info diagnostic when the bound expression can't be evaluated (a function call, not the real repro's literal)", async () => {
+    const source = `<script setup lang="ts">
+defineProps<{ name: string }>();
+</script>
+<template><img v-src="computeUrl(name)" /></template>`;
+    const result = await generateVariants({
+      filename: "/p/Unresolved.vue",
+      source,
+      options: {
+        customDirectives: [{ name: "src", attributes: { src: "$value" } }],
+      },
+    });
+    expect(result.variants[0]?.html).toBe('<img src="dummy-string">');
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "custom-directive-value-unresolved",
+        severity: "info",
+      }),
+    ]);
+  });
+
+  it.each([
+    ["null", "null"],
+    ["undefined", "undefined"],
+    ["false", "false"],
+  ])(
+    "drops the attribute when the resolved value is %s, reusing attributeFromValue's existing rule with no new diagnostic",
+    async (_label, expression) => {
+      const source = `<template><input v-toggle="${expression}" /></template>`;
+      const result = await generateVariants({
+        filename: "/p/Toggle.vue",
+        source,
+        options: {
+          customDirectives: [
+            { name: "toggle", attributes: { disabled: "$value" } },
+          ],
+        },
+      });
+      expect(result.variants[0]?.html).toBe("<input>");
+      expect(result.diagnostics).toEqual([]);
+    },
+  );
+
+  it("registers a decision for a value-path directive's bound expression (DecisionCollector regression guard)", async () => {
+    const source = `<script setup lang="ts">
+defineProps<{ status: "on" | "off" }>();
+</script>
+<template><img v-src="status === 'on' ? '/on.svg' : '/off.svg'" /></template>`;
+    const result = await generateVariants({
+      filename: "/p/Branch.vue",
+      source,
+      options: {
+        customDirectives: [{ name: "src", attributes: { src: "$value" } }],
+      },
+    });
+    expect(result.variants).toHaveLength(2);
+    const on = result.variants.find(
+      (variant) => variant.decisions[0]?.value === "on",
+    );
+    const off = result.variants.find(
+      (variant) => variant.decisions[0]?.value === "off",
+    );
+    expect(on?.html).toBe('<img src="/on.svg">');
+    expect(off?.html).toBe('<img src="/off.svg">');
+    const provenance = on!.map.find(
+      (entry) => entry.kind === "attribute-value",
+    )?.provenance;
+    expect(provenance).toMatchObject({ kind: "finite-domain" });
+  });
+
+  it("leaves an undeclared directive's dispatch unchanged when unrelated customDirectives are configured", async () => {
+    const source = `<template><span v-focus></span></template>`;
+    const result = await generateVariants({
+      filename: "/p/Undeclared.vue",
+      source,
+      options: {
+        customDirectives: [{ name: "src", attributes: { src: "$value" } }],
+      },
+    });
+    expect(result.variants[0]?.html).toBe("<span></span>");
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "custom-directive-not-modeled",
+    ]);
+  });
+
+  it("emits a bare-word literal constant verbatim instead of evaluating it as an expression, even with no bound expression at all", async () => {
+    const source = `<template><div v-status-badge></div></template>`;
+    const result = await generateVariants({
+      filename: "/p/Constant.vue",
+      source,
+      options: {
+        customDirectives: [
+          { name: "statusBadge", attributes: { role: "status" } },
+        ],
+      },
+    });
+    expect(result.variants[0]?.html).toBe('<div role="status"></div>');
+    expect(result.diagnostics).toEqual([]);
+    const provenance = result.variants[0]?.map.find(
+      (entry) => entry.kind === "attribute-value",
+    )?.provenance;
+    expect(provenance).toMatchObject({ kind: "source-literal" });
+  });
+
+  it("matches a template directive by camelized name regardless of which spelling was declared", async () => {
+    const resultKebabTemplate = await generateVariants({
+      filename: "/p/CamelA.vue",
+      source: `<template><img v-img-attr="'/a.svg'" /></template>`,
+      options: {
+        customDirectives: [{ name: "imgAttr", attributes: { src: "$value" } }],
+      },
+    });
+    expect(resultKebabTemplate.variants[0]?.html).toBe('<img src="/a.svg">');
+
+    const resultCamelTemplate = await generateVariants({
+      filename: "/p/CamelB.vue",
+      source: `<template><img v-imgAttr="'/b.svg'" /></template>`,
+      options: {
+        customDirectives: [{ name: "img-attr", attributes: { src: "$value" } }],
+      },
+    });
+    expect(resultCamelTemplate.variants[0]?.html).toBe('<img src="/b.svg">');
+  });
+
+  it("does not register a decision for an all-constant mapping even if its bound expression references a finite-domain binding", async () => {
+    const source = `<script setup lang="ts">
+defineProps<{ status: "on" | "off" }>();
+</script>
+<template><div v-badge="status"></div></template>`;
+    const result = await generateVariants({
+      filename: "/p/AllConstant.vue",
+      source,
+      options: {
+        customDirectives: [{ name: "badge", attributes: { role: "status" } }],
+      },
+    });
+    expect(result.stats.decisionCount).toBe(0);
+    expect(result.variants).toHaveLength(1);
+    expect(result.variants[0]?.html).toBe('<div role="status"></div>');
+  });
+
+  describe("core-side defensive validation (bypassing settings, v3)", () => {
+    it("drops a reserved-directive-name mapping with one warning; dispatch of the real directive is unaffected", async () => {
+      const source = `<template><div :id="'x'"></div></template>`;
+      const result = await generateVariants({
+        filename: "/p/Reserved.vue",
+        source,
+        options: {
+          customDirectives: [{ name: "bind", attributes: { foo: "bar" } }],
+        },
+      });
+      expect(result.variants[0]?.html).toBe('<div id="x"></div>');
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({
+          code: "custom-directive-mapping-invalid",
+          severity: "warning",
+        }),
+      ]);
+    });
+
+    it("drops one invalid attribute key with a warning; it is never serialized", async () => {
+      const source = `<template><div v-badge="'x'"></div></template>`;
+      const result = await generateVariants({
+        filename: "/p/BadKey.vue",
+        source,
+        options: {
+          customDirectives: [
+            {
+              name: "badge",
+              attributes: { "bad key": "constant-value", role: "status" },
+            },
+          ],
+        },
+      });
+      expect(result.variants[0]?.html).toBe('<div role="status"></div>');
+      expect(result.variants[0]?.html).not.toContain("bad key");
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({
+          code: "custom-directive-mapping-invalid",
+          severity: "warning",
+        }),
+      ]);
+    });
+
+    it("drops a malformed $value-containing template at parse time with a warning; sibling attributes survive", async () => {
+      const source = `<template><img v-src="'/a.svg'" /></template>`;
+      const result = await generateVariants({
+        filename: "/p/BadTemplate.vue",
+        source,
+        options: {
+          customDirectives: [
+            { name: "src", attributes: { src: "$value[0]", alt: "icon" } },
+          ],
+        },
+      });
+      expect(result.variants[0]?.html).toBe('<img alt="icon">');
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({
+          code: "custom-directive-mapping-invalid",
+          severity: "warning",
+          message: expect.stringContaining(
+            'value template for attribute "src"',
+          ),
+        }),
+      ]);
+    });
+
+    it("drops the whole entry when a malformed template was its only attribute; the usage falls back to custom-directive-not-modeled", async () => {
+      const source = `<template><img v-src="'/a.svg'" /></template>`;
+      const result = await generateVariants({
+        filename: "/p/BadTemplateOnly.vue",
+        source,
+        options: {
+          customDirectives: [{ name: "src", attributes: { src: "$value[0]" } }],
+        },
+      });
+      expect(result.variants[0]?.html).toBe("<img>");
+      expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+        "custom-directive-mapping-invalid",
+        "custom-directive-not-modeled",
+      ]);
+    });
+
+    it("drops all camelized-duplicate entries (no winner); the template usage falls back to custom-directive-not-modeled", async () => {
+      const source = `<template><img v-img-attr="'/a.svg'" /></template>`;
+      const result = await generateVariants({
+        filename: "/p/Dup.vue",
+        source,
+        options: {
+          customDirectives: [
+            { name: "img-attr", attributes: { src: "$value" } },
+            { name: "imgAttr", attributes: { src: "$value" } },
+          ],
+        },
+      });
+      expect(result.variants[0]?.html).toBe("<img>");
+      expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+        "custom-directive-mapping-invalid",
+        "custom-directive-not-modeled",
+      ]);
+    });
+  });
+
+  describe("own-property-only $value lookup (v3 hardening)", () => {
+    it.each(["constructor", "toString", "__proto__"])(
+      "treats $value.%s as a missing own property, never an inherited one",
+      async (key) => {
+        const source = `<template><div v-badge="{ role: 'status' }"></div></template>`;
+        const result = await generateVariants({
+          filename: "/p/OwnProp.vue",
+          source,
+          options: {
+            customDirectives: [
+              {
+                name: "badge",
+                attributes: { [`data-${key}`]: `$value.${key}` },
+              },
+            ],
+          },
+        });
+        expect(result.variants[0]?.html).toBe("<div></div>");
+        expect(result.diagnostics).toEqual([]);
+      },
+    );
+  });
+
+  it("resolves to a sentinel with an info diagnostic for a $value template when the directive has no bound expression at all", async () => {
+    const source = `<template><div v-badge></div></template>`;
+    const result = await generateVariants({
+      filename: "/p/NoExp.vue",
+      source,
+      options: {
+        customDirectives: [{ name: "badge", attributes: { role: "$value" } }],
+      },
+    });
+    expect(result.variants[0]?.html).toBe('<div role="dummy-string"></div>');
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "custom-directive-value-unresolved",
+        severity: "info",
+      }),
+    ]);
+  });
+});

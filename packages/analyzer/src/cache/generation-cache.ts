@@ -46,7 +46,26 @@ function normalizeGenerateOptions(
   return {
     warnVariantCount: options.warnVariantCount ?? null,
     customElements: [...(options.customElements ?? [])].sort(),
+    // Sound, not just deterministic: core rejects camelized-duplicate
+    // `customDirectives` mappings outright (generate.ts, plan.md §1 v3), so
+    // there is no wins-rule an order-insensitive key could conflate two
+    // differently-behaving options objects onto (core.md's "normalized
+    // GenerateOptions" cache-key contract).
+    customDirectives: [...(options.customDirectives ?? [])]
+      .map((mapping) => ({
+        name: mapping.name,
+        attributes: sortObjectEntries(mapping.attributes),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
   };
+}
+
+function sortObjectEntries(
+  record: Readonly<Record<string, string>>,
+): readonly (readonly [string, string])[] {
+  return Object.entries(record).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
 }
 
 function hashContent(source: string): string {

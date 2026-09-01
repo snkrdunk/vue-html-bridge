@@ -16,6 +16,12 @@ export interface ValidatorSettingInput {
   settings?: unknown;
 }
 
+/** One entry of the `customDirectives` list, as a layer provides it. */
+export interface CustomDirectiveSettingInput {
+  name: string;
+  attributes: Record<string, string>;
+}
+
 /** What one configuration layer provides. All fields optional. */
 export interface VueHtmlBridgeSettingsInput {
   /**
@@ -38,6 +44,7 @@ export interface VueHtmlBridgeSettingsInput {
   maxConcurrency?: number;
   warnVariantCount?: number;
   customElements?: readonly string[];
+  customDirectives?: readonly CustomDirectiveSettingInput[];
   externalAdapters?: "disabled" | "trusted-workspace-only";
   validators?: readonly ValidatorSettingInput[];
 }
@@ -47,6 +54,12 @@ export interface ResolvedValidatorSetting {
   adapter: string;
   enabled: boolean;
   settings?: unknown;
+}
+
+/** One entry of the `customDirectives` list, as resolution produces it. */
+export interface ResolvedCustomDirectiveSetting {
+  readonly name: string;
+  readonly attributes: Readonly<Record<string, string>>;
 }
 
 /** The merged result every consumer receives. */
@@ -62,6 +75,7 @@ export interface ResolvedVueHtmlBridgeSettings {
   /** undefined = delegate to core's default of 256 (core.md §2.1). */
   warnVariantCount: number | undefined;
   customElements: readonly string[];
+  customDirectives: readonly ResolvedCustomDirectiveSetting[];
   externalAdapters: "disabled" | "trusted-workspace-only";
   validators: readonly ResolvedValidatorSetting[];
 }
@@ -73,6 +87,8 @@ export interface SettingsIssue {
     | "invalid-type"
     | "out-of-range"
     | "duplicate-adapter"
+    | "duplicate-custom-directive"
+    | "reserved-custom-directive"
     | "file-missing"
     | "file-unreadable"
     | "parse-error";
@@ -93,6 +109,7 @@ export const KNOWN_SETTINGS_FIELDS = [
   "maxConcurrency",
   "warnVariantCount",
   "customElements",
+  "customDirectives",
   "externalAdapters",
   "validators",
 ] as const;

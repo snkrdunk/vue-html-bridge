@@ -28,9 +28,17 @@ export interface TypeAnalysisContext {
   invalidate(filenames: readonly string[]): void;
 }
 
+export interface CustomDirectiveMapping {
+  /** Directive name w/o "v-", e.g. "src", "imgAttr"; matched camelized. */
+  readonly name: string;
+  /** attrName -> value template */
+  readonly attributes: Readonly<Record<string, string>>;
+}
+
 export interface GenerateOptions {
   warnVariantCount?: number;
   customElements?: readonly string[];
+  customDirectives?: readonly CustomDirectiveMapping[];
 }
 
 export interface GenerateRequest {

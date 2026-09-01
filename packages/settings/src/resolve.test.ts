@@ -86,6 +86,7 @@ describe("resolveSettings: validation (§8 item 3)", () => {
     ["maxConcurrency", "4", undefined],
     ["warnVariantCount", 3.5, undefined],
     ["customElements", "not-an-array", []],
+    ["customDirectives", "not-an-array", []],
     ["externalAdapters", "sometimes", "disabled"],
     ["include", { not: "an array" }, ["**/*.vue"]],
     ["validators", "not-an-array", [{ adapter: "markuplint", enabled: true }]],
@@ -254,5 +255,179 @@ describe("resolveSettings: pinning beats lower layers (§8 item 4)", () => {
     ]);
     expect(settings.externalAdapters).toBe("trusted-workspace-only");
     expect(issues).toMatchObject([{ code: "invalid-type" }]);
+  });
+});
+
+// plan.md §2 / ADR-0010.
+describe("resolveSettings: customDirectives validation (plan.md §2, ADR-0010)", () => {
+  it("accepts a valid entry with a constant and a $value-path template", () => {
+    const { settings, issues } = resolveSettings([
+      {
+        customDirectives: [
+          { name: "src", attributes: { src: "$value", role: "img" } },
+        ],
+      },
+    ]);
+    expect(issues).toEqual([]);
+    expect(settings.customDirectives).toEqual([
+      { name: "src", attributes: { src: "$value", role: "img" } },
+    ]);
+  });
+
+  it("drops one structurally invalid customDirectives[] item without discarding the rest of the array", () => {
+    const { settings, issues } = resolveSettings([
+      {
+        customDirectives: [
+          { name: "src", attributes: { src: "$value" } },
+          { notAName: true },
+          "not even an object",
+        ],
+      },
+    ]);
+    expect(settings.customDirectives).toEqual([
+      { name: "src", attributes: { src: "$value" } },
+    ]);
+    expect(issues.map((issue) => issue.path)).toEqual([
+      "customDirectives[1].name",
+      "customDirectives[2]",
+    ]);
+    expect(issues.every((issue) => issue.severity === "error")).toBe(true);
+  });
+
+  it("detects an exact-name duplicate within one layer; the first entry wins", () => {
+    const { settings, issues } = resolveSettings([
+      {
+        customDirectives: [
+          { name: "src", attributes: { src: "$value" } },
+          { name: "src", attributes: { alt: "icon" } },
+        ],
+      },
+    ]);
+    expect(settings.customDirectives).toEqual([
+      { name: "src", attributes: { src: "$value" } },
+    ]);
+    expect(issues).toEqual([
+      {
+        severity: "error",
+        code: "duplicate-custom-directive",
+        path: "customDirectives[1].name",
+        message:
+          'Duplicate customDirectives entry for directive "src" (after camelizing); the first entry wins.',
+      },
+    ]);
+  });
+
+  it("detects a camelized-name duplicate (img-attr vs imgAttr); the first entry wins", () => {
+    const { settings, issues } = resolveSettings([
+      {
+        customDirectives: [
+          { name: "img-attr", attributes: { src: "$value" } },
+          { name: "imgAttr", attributes: { alt: "icon" } },
+        ],
+      },
+    ]);
+    expect(settings.customDirectives).toEqual([
+      { name: "img-attr", attributes: { src: "$value" } },
+    ]);
+    expect(issues).toMatchObject([
+      { severity: "error", code: "duplicate-custom-directive" },
+    ]);
+  });
+
+  it("rejects a reserved built-in directive name; the entry is dropped", () => {
+    const { settings, issues } = resolveSettings([
+      { customDirectives: [{ name: "bind", attributes: { foo: "bar" } }] },
+    ]);
+    expect(settings.customDirectives).toEqual([]);
+    expect(issues).toEqual([
+      {
+        severity: "error",
+        code: "reserved-custom-directive",
+        path: "customDirectives[0].name",
+        message:
+          'customDirectives entry "bind" names a reserved built-in directive and was ignored.',
+      },
+    ]);
+  });
+
+  it.each(["$value", "$value.src", "$value.a.b"])(
+    "accepts the $value-path grammar: %s",
+    (template) => {
+      const { settings, issues } = resolveSettings([
+        { customDirectives: [{ name: "src", attributes: { src: template } }] },
+      ]);
+      expect(issues).toEqual([]);
+      expect(settings.customDirectives).toEqual([
+        { name: "src", attributes: { src: template } },
+      ]);
+    },
+  );
+
+  it.each(["$valuefoo", "$value[0]", "$value..a", "$value.", "x$valuex"])(
+    "rejects a malformed $value-containing template: %s",
+    (template) => {
+      const { settings, issues } = resolveSettings([
+        { customDirectives: [{ name: "src", attributes: { src: template } }] },
+      ]);
+      expect(settings.customDirectives).toEqual([]);
+      // One issue for the rejected template itself, plus one for the whole
+      // entry becoming empty once that was its only attribute.
+      expect(issues).toHaveLength(2);
+      expect(issues.every((issue) => issue.code === "invalid-type")).toBe(true);
+    },
+  );
+
+  it("treats a template with no $value occurrence as a literal string constant, never requiring $value", () => {
+    const { settings, issues } = resolveSettings([
+      {
+        customDirectives: [
+          {
+            name: "badge",
+            attributes: { role: "status", "aria-busy": "true" },
+          },
+        ],
+      },
+    ]);
+    expect(issues).toEqual([]);
+    expect(settings.customDirectives).toEqual([
+      { name: "badge", attributes: { role: "status", "aria-busy": "true" } },
+    ]);
+  });
+
+  it("drops one attribute key that fails the attribute-name pattern (space or quote), keeping the rest of the entry", () => {
+    const { settings, issues } = resolveSettings([
+      {
+        customDirectives: [
+          {
+            name: "badge",
+            attributes: { "bad key": "x", 'bad"key': "y", role: "status" },
+          },
+        ],
+      },
+    ]);
+    expect(settings.customDirectives).toEqual([
+      { name: "badge", attributes: { role: "status" } },
+    ]);
+    expect(issues).toHaveLength(2);
+    expect(issues.every((issue) => issue.severity === "error")).toBe(true);
+  });
+
+  it("invalidates the whole entry when every attribute key is dropped, leaving an empty object", () => {
+    const { settings, issues } = resolveSettings([
+      { customDirectives: [{ name: "badge", attributes: { "bad key": "x" } }] },
+    ]);
+    expect(settings.customDirectives).toEqual([]);
+    expect(issues).toMatchObject([
+      {
+        severity: "error",
+        code: "invalid-type",
+        path: 'customDirectives[0].attributes["bad key"]',
+      },
+      {
+        severity: "error",
+        code: "invalid-type",
+        path: "customDirectives[0].attributes",
+      },
+    ]);
   });
 });

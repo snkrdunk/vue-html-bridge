@@ -69,6 +69,13 @@ const ARIA_CONTROLS_FIXTURE = fileURLToPath(
   ),
 );
 
+const CUSTOM_DIRECTIVE_IMG_SRC_FIXTURE = fileURLToPath(
+  new URL(
+    "../../../examples/playground/custom-directive-img-src.vue",
+    import.meta.url,
+  ),
+);
+
 describe("CLI e2e: NDJSON goldens (cli.md §9 item 7)", () => {
   it("clean-plus-violation run: meta, file x N (sorted), summary — every line independently JSON.parse-able", async () => {
     const root = await tempWorkspace();
@@ -190,6 +197,43 @@ describe("CLI e2e: text output (cli.md §9 item 6, real fixture)", () => {
     expect(text).toContain(
       "1 file analyzed: 1 error, 0 warnings, 0 infos, 0 hints",
     );
+  });
+});
+
+// plan.md "Custom-directive attribute value modeling ('Plan B')" / ADR-0010:
+// end-to-end proof that settings-file -> CLI -> analyzer -> core wiring
+// resolves a declared customDirectives mapping and makes the resulting
+// required-attr false positive disappear.
+describe("CLI e2e: customDirectives settings (plan.md, ADR-0010)", () => {
+  it("a declared customDirectives mapping resolves v-src's value, making the required-attr false positive disappear", async () => {
+    const root = await tempWorkspace();
+    const fixtureSource = await readFile(
+      CUSTOM_DIRECTIVE_IMG_SRC_FIXTURE,
+      "utf8",
+    );
+    await writeFile(join(root, "Icon.vue"), fixtureSource);
+
+    const baseline = io({ argv: [], cwd: root });
+    const baselineResult = await baseline.run();
+    expect(baselineResult).toEqual({ interrupted: false, exitCode: 1 });
+    const baselineText = baseline.stdout.join("");
+    expect(baselineText).toContain("required-attr");
+    expect(baselineText).toContain("custom-directive-not-modeled");
+
+    await writeFile(
+      join(root, ".vue-html-bridge.json"),
+      JSON.stringify({
+        customDirectives: [{ name: "src", attributes: { src: "$value" } }],
+      }),
+    );
+
+    const configured = io({ argv: [], cwd: root });
+    const configuredResult = await configured.run();
+    expect(configuredResult).toEqual({ interrupted: false, exitCode: 0 });
+    const configuredText = configured.stdout.join("");
+    expect(configuredText).not.toContain("required-attr");
+    expect(configuredText).not.toContain("custom-directive-not-modeled");
+    expect(configuredText).not.toContain("custom-directive-value-unresolved");
   });
 });
 

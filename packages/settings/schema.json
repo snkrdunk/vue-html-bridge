@@ -72,6 +72,37 @@
       "default": [],
       "description": "Tag names or globs treated as known custom elements."
     },
+    "customDirectives": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][\\w-]*$",
+            "description": "The directive name without \"v-\" (e.g. \"src\", \"imgAttr\"); matched camelized."
+          },
+          "attributes": {
+            "type": "object",
+            "propertyNames": {
+              "pattern": "^[a-zA-Z][\\w:-]*$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^(?:[^$]|\\$(?!value))*$|^\\$value(?:\\.[A-Za-z_$][\\w$]*)*$"
+            },
+            "description": "Attribute name -> value template: a literal string constant, or \"$value\" optionally followed by dotted property segments (e.g. \"$value.src\")."
+          }
+        },
+        "required": [
+          "name",
+          "attributes"
+        ],
+        "additionalProperties": false
+      },
+      "default": [],
+      "description": "Declares which attributes a custom directive sets and how to derive each value from the directive's bound expression."
+    },
     "externalAdapters": {
       "type": "string",
       "enum": [

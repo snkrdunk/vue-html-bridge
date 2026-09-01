@@ -1,4 +1,5 @@
 import type {
+  ResolvedCustomDirectiveSetting,
   ResolvedValidatorSetting,
   ResolvedVueHtmlBridgeSettings,
 } from "./schema.js";
@@ -16,6 +17,7 @@ import type {
 export interface GenerateOptions {
   warnVariantCount?: number;
   customElements?: readonly string[];
+  customDirectives?: readonly ResolvedCustomDirectiveSetting[];
 }
 
 /** Structurally matches analyzer's `CreateWorkspaceAnalyzerOptions`/`ReconfigureOptions` `maxConcurrency` field (analyzer.md §2). */
@@ -56,6 +58,7 @@ export function decomposeSettings(
         ? { warnVariantCount: settings.warnVariantCount }
         : {}),
       customElements: settings.customElements,
+      customDirectives: settings.customDirectives,
     },
     analyzer: {
       ...(settings.maxConcurrency !== undefined

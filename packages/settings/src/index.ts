@@ -1,6 +1,8 @@
 export const PACKAGE_NAME = "@vue-html-bridge/settings";
 
 export type {
+  CustomDirectiveSettingInput,
+  ResolvedCustomDirectiveSetting,
   ResolvedValidatorSetting,
   ResolvedVueHtmlBridgeSettings,
   SettingsIssue,
@@ -10,7 +12,12 @@ export type {
 
 export { DEFAULT_SETTINGS } from "./defaults.js";
 
-export { resolveSettings } from "./resolve.js";
+export {
+  ATTRIBUTE_NAME_PATTERN,
+  RESERVED_DIRECTIVE_NAMES,
+  VALUE_PATH_PATTERN,
+  resolveSettings,
+} from "./resolve.js";
 
 export {
   decomposeSettings,
