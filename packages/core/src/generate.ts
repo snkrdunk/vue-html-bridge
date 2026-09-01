@@ -603,7 +603,7 @@ class DecisionCollector {
     } else if (booleanSite && !added) {
       this.diagnostics.push({
         code: "expression-not-symbolically-evaluable",
-        severity: "warning",
+        severity: "hint",
         message: `Expression cannot be evaluated without running JavaScript: ${expression}`,
         sourceRange: this.sourceRange(loc),
       });
