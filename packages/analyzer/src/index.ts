@@ -22,6 +22,8 @@ export type {
   SourceDiagnostic,
   SourceDiagnosticOrigin,
   SourceRelatedInformation,
+  VariantArtifact,
+  VariantArtifactMember,
   VariantSummary,
   WorkspaceAnalyzer,
 } from "./types.js";

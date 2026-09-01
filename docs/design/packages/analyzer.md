@@ -105,6 +105,8 @@ export interface AnalysisResult {
   diagnostics: readonly SourceDiagnostic[];
   variantSummary: VariantSummary;
   timing: AnalysisTiming;
+  /** Present only when `collectVariantArtifacts` was set (ADR-0011). */
+  variantArtifacts?: readonly VariantArtifact[];
 }
 
 export interface VariantSummary {
@@ -116,6 +118,33 @@ export interface VariantSummary {
 ```
 
 The analyzer receives the source snapshot as a value on the request. It does not re-read the `.vue` file from the filesystem. This keeps diagnostics in sync with the version of unsaved editor buffers.
+
+**`collectVariantArtifacts` (ADR-0011).** `CreateWorkspaceAnalyzerOptions.collectVariantArtifacts?: boolean` is opt-in and defaults to unset/false. When true, `analyze()` additionally populates `AnalysisResult.variantArtifacts`, one entry per unique generated HTML within that call (hash-grouped exactly as §5.2's work-item grouping, via the same extracted `groupVariantsByHtml` helper — independent of adapters/diagnostics, so it's populated even for a clean run with zero diagnostics or zero adapters, since the point is showing generated HTML, not diagnostic-linked HTML):
+
+```ts
+export interface VariantArtifact {
+  htmlHash: string;
+  virtualFilename: string;
+  html: string;
+  variants: readonly VariantArtifactMember[];
+  /** The representative variant's mapping entries — same precedent as the
+   * diagnostic-occurrence path's use of the representative's `.map`. */
+  map: readonly MappingEntry[];
+}
+
+export interface VariantArtifactMember {
+  variantId: string;
+  decisions: readonly DecisionAssignment[];
+}
+```
+
+This option has no effect on caching (§10.1/§10.2): the generation cache
+already stores the full `GenerateResult` (including `.variants`) regardless
+of this flag, so it is deliberately **not** part of `generationCacheKey` or
+`validationCacheKey` — it only gates whether `analyze()` additionally
+copies already-computed/cached data into its return value. `@vue-html-bridge/cli`'s
+`--emit-html <dir>` flag is the only current consumer: it sets this option
+for the whole run and writes each `VariantArtifact` to disk (cli.md §4.2).
 
 ## 3. Source diagnostic
 
@@ -212,6 +241,8 @@ function virtualFilename(sourceFilename: string, htmlHash: string): string {
 ```
 
 The format follows the normative definition in validator-api §3.2. Because the final segment is derived from the HTML content hash, work items with identical HTML share the same virtual filename. This means path-dependent config (such as `overrides` or `excludeFiles`) is not affected by which variant is chosen as the representative for validation. The path does not need to exist on the filesystem. If an adapter needs a real file, the adapter itself is responsible for managing a safe temporary location and its cleanup.
+
+The hash-grouping this depends on (`Map<hash, {html, hash, variantIds}>`) is exposed as its own named export, `groupVariantsByHtml`, rather than being inlined only inside `buildWorkItems` — `AnalysisResult.variantArtifacts` (§2.1, ADR-0011) needs the identical grouping independent of adapters/work items, and this keeps the two call sites from drifting.
 
 ### 5.3 Concurrency
 

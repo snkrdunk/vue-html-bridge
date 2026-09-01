@@ -92,6 +92,27 @@ describe("parseArgv: general flag surface (cli.md §4.2)", () => {
     expect(result.options.failOn).toBe("error");
   });
 
+  it("--emit-html <dir> (plan.md T3, ADR-0011)", () => {
+    const result = parseArgv(["--emit-html", "/tmp/debug-html"]);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.options.emitHtmlDir).toBe("/tmp/debug-html");
+  });
+
+  it("emitHtmlDir is undefined when --emit-html is omitted (REQ-8/REQ-5 no-default-change)", () => {
+    const result = parseArgv(["src/A.vue"]);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.options.emitHtmlDir).toBeUndefined();
+  });
+
+  it('"--emit-html" with no following value (end of argv) is a usage error', () => {
+    const result = parseArgv(["--emit-html"]);
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") return;
+    expect(result.message).toBe('"--emit-html" requires a value.');
+  });
+
   it("--help and --version short-circuit flags", () => {
     const help = parseArgv(["--help"]);
     expect(help.kind).toBe("ok");

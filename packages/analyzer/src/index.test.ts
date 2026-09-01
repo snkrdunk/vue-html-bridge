@@ -688,6 +688,97 @@ describe("createWorkspaceAnalyzer (analyzer.md §12, Phase 1 subset)", () => {
     // Isolated to that one adapter: the healthy adapter's own result survives.
     expect(result.diagnostics.some((d) => d.code === "ok")).toBe(true);
   });
+
+  it("19: collectVariantArtifacts populates variantArtifacts with hash-grouped HTML, decisions, and map (plan.md T2)", async () => {
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [],
+      collectVariantArtifacts: true,
+    });
+    const result = await analyzer.analyze({
+      uri: "file:///workspace/Menu.vue",
+      filename: "/workspace/Menu.vue",
+      source: SOURCE,
+      signal: new AbortController().signal,
+    });
+    await analyzer.dispose();
+    expect(result.variantArtifacts).toBeDefined();
+    const artifacts = result.variantArtifacts!;
+    expect(artifacts).toHaveLength(2);
+    for (const artifact of artifacts) {
+      expect(artifact.virtualFilename).toBe(
+        `/workspace/Menu.vue.__vue_html_bridge__/variant-${artifact.htmlHash}.html`,
+      );
+      expect(artifact.variants.length).toBeGreaterThan(0);
+      for (const member of artifact.variants) {
+        expect(typeof member.variantId).toBe("string");
+        expect(Array.isArray(member.decisions)).toBe(true);
+      }
+      expect(Array.isArray(artifact.map)).toBe(true);
+    }
+    const withMenu = artifacts.find((artifact) =>
+      artifact.html.includes("user-menu"),
+    );
+    expect(withMenu?.html).toBe(
+      '<nav id="user-menu"></nav><button aria-controls="user-menu"></button>',
+    );
+    expect(
+      withMenu?.map.some((entry) => entry.kind === "attribute-value"),
+    ).toBe(true);
+  });
+
+  it("20: collectVariantArtifacts groups distinct decision paths that render byte-identical HTML into one artifact (REQ-6)", async () => {
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [],
+      collectVariantArtifacts: true,
+    });
+    const result = await analyzer.analyze({
+      uri: "file:///workspace/Same.vue",
+      filename: "/workspace/Same.vue",
+      source: `<script setup lang="ts">defineProps<{ a: boolean }>();</script>
+<template><p v-if="a">same</p><p v-else>same</p></template>`,
+      signal: new AbortController().signal,
+    });
+    await analyzer.dispose();
+    const artifacts = result.variantArtifacts!;
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]!.html).toBe("<p>same</p>");
+    expect(artifacts[0]!.variants).toHaveLength(2);
+    const values = artifacts[0]!.variants.map(
+      (member) => member.decisions[0]?.value,
+    );
+    expect(values.sort()).toEqual([false, true]);
+  });
+
+  it("21: variantArtifacts is undefined when collectVariantArtifacts is omitted or false (REQ-8 negative case)", async () => {
+    const analyzerDefault = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [],
+    });
+    const defaultResult = await analyzerDefault.analyze({
+      uri: "file:///workspace/Menu.vue",
+      filename: "/workspace/Menu.vue",
+      source: SOURCE,
+      signal: new AbortController().signal,
+    });
+    await analyzerDefault.dispose();
+    expect(defaultResult.variantArtifacts).toBeUndefined();
+
+    const analyzerFalse = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [],
+      collectVariantArtifacts: false,
+    });
+    const falseResult = await analyzerFalse.analyze({
+      uri: "file:///workspace/Menu.vue",
+      filename: "/workspace/Menu.vue",
+      source: SOURCE,
+      signal: new AbortController().signal,
+    });
+    await analyzerFalse.dispose();
+    expect(falseResult.variantArtifacts).toBeUndefined();
+  });
 });
 
 function timeout(ms: number): Promise<"timeout"> {

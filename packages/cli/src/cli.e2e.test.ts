@@ -24,7 +24,7 @@
 // either host's positions would still be caught, just not by one shared
 // assertion.
 import { fileURLToPath } from "node:url";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -308,5 +308,125 @@ describe("CLI e2e: --untrusted (cli.md §5, §9 item 12)", () => {
     const combined = stdout.join("") + stderr.join("");
     expect(combined).toContain("some-external-adapter-package");
     expect(combined).toContain("external-adapters-disabled");
+  });
+});
+
+// plan.md T6 / ADR-0011: end-to-end proof of REQ-5 through REQ-9 and the
+// Q1-Q4 decisions (Q5 is a package-boundary decision with no CLI-observable
+// behavior of its own).
+describe("CLI e2e: --emit-html (plan.md T6, ADR-0011)", () => {
+  const TOGGLE_TEMPLATE = `<script setup lang="ts">defineProps<{ loggedIn: boolean }>();</script>
+<template>
+  <nav v-if="loggedIn" id="user-menu"></nav>
+  <button :aria-controls="loggedIn ? 'user-menu' : undefined"></button>
+</template>`;
+
+  it("writes one HTML + sidecar pair per generated variant, under the virtual-filename convention, reachable under <dir>", async () => {
+    const root = await tempWorkspace();
+    await writeFile(join(root, "Menu.vue"), TOGGLE_TEMPLATE);
+    const outDir = join(root, "__emit_out__");
+
+    const { stderr, run } = io({
+      argv: ["--emit-html", outDir],
+      cwd: root,
+    });
+    const result = await run();
+    expect(result.interrupted).toBe(false);
+
+    const groupDir = join(outDir, "Menu.vue.__vue_html_bridge__");
+    const entries = await readdir(groupDir);
+    const htmlFiles = entries.filter((name) => name.endsWith(".html"));
+    const jsonFiles = entries.filter((name) => name.endsWith(".json"));
+    // Two variants (loggedIn true/false), each with distinct HTML.
+    expect(htmlFiles).toHaveLength(2);
+    expect(jsonFiles).toHaveLength(2);
+
+    let foundLoggedIn = false;
+    for (const htmlFile of htmlFiles) {
+      const html = await readFile(join(groupDir, htmlFile), "utf8");
+      const sidecarFile = htmlFile.replace(/\.html$/, ".json");
+      const sidecar = JSON.parse(
+        await readFile(join(groupDir, sidecarFile), "utf8"),
+      );
+      expect(sidecar.htmlFile).toBe(htmlFile);
+      expect(sidecar.sourceFilename).toBe("Menu.vue");
+      expect(Array.isArray(sidecar.variants)).toBe(true);
+      expect(sidecar.variants.length).toBeGreaterThan(0);
+      if (html.includes("user-menu")) {
+        foundLoggedIn = true;
+        expect(html).toBe(
+          '<nav id="user-menu"></nav><button aria-controls="user-menu"></button>',
+        );
+        expect(
+          sidecar.map.some(
+            (entry: { kind: string }) =>
+              entry.kind === "attribute-value" ||
+              entry.kind === "attribute-name",
+          ),
+        ).toBe(true);
+      }
+    }
+    expect(foundLoggedIn).toBe(true);
+    expect(stderr.some((line) => line.includes("--emit-html"))).toBe(true);
+    expect(stderr.some((line) => line.includes("2"))).toBe(true);
+  });
+
+  it("collapses distinct decision paths that render byte-identical HTML into one file (REQ-6)", async () => {
+    const root = await tempWorkspace();
+    await writeFile(
+      join(root, "Same.vue"),
+      `<script setup lang="ts">defineProps<{ a: boolean }>();</script>
+<template><p v-if="a">same</p><p v-else>same</p></template>`,
+    );
+    const outDir = join(root, "__emit_out__");
+
+    const { run } = io({ argv: ["--emit-html", outDir], cwd: root });
+    await run();
+
+    const groupDir = join(outDir, "Same.vue.__vue_html_bridge__");
+    const entries = await readdir(groupDir);
+    const htmlFiles = entries.filter((name) => name.endsWith(".html"));
+    expect(htmlFiles).toHaveLength(1);
+    expect(await readFile(join(groupDir, htmlFiles[0]!), "utf8")).toBe(
+      "<p>same</p>",
+    );
+    const sidecar = JSON.parse(
+      await readFile(
+        join(groupDir, htmlFiles[0]!.replace(/\.html$/, ".json")),
+        "utf8",
+      ),
+    );
+    expect(sidecar.variants).toHaveLength(2);
+  });
+
+  it("REQ-8 negative case: no --emit-html directory or files appear anywhere when the flag is omitted", async () => {
+    const root = await tempWorkspace();
+    await writeFile(join(root, "Menu.vue"), TOGGLE_TEMPLATE);
+    const wouldBeOutDir = join(root, "__emit_out__");
+
+    const before = await readdir(root);
+    const { run } = io({ argv: [], cwd: root });
+    await run();
+    const after = await readdir(root);
+
+    expect(after).toEqual(before);
+    await expect(readdir(wouldBeOutDir)).rejects.toThrow();
+  });
+
+  it("composes with --untrusted: files are still written (Q3 — host-neutral)", async () => {
+    const root = await tempWorkspace();
+    await writeFile(join(root, "Menu.vue"), TOGGLE_TEMPLATE);
+    const outDir = join(root, "__emit_out__");
+
+    const { run } = io({
+      argv: ["--emit-html", outDir, "--untrusted"],
+      cwd: root,
+    });
+    const result = await run();
+    expect(result.interrupted).toBe(false);
+
+    const groupDir = join(outDir, "Menu.vue.__vue_html_bridge__");
+    const entries = await readdir(groupDir);
+    expect(entries.some((name) => name.endsWith(".html"))).toBe(true);
   });
 });

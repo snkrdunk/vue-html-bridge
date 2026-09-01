@@ -90,6 +90,19 @@ export async function runVueHtmlBridgeCli(
     return { interrupted: false, exitCode: EXIT_RUN_ERROR };
   }
 
+  // Resolved against workspaceRoot, not cwd, consistent with cli.md §4.2's
+  // documented role for --workspace-root ("relative output paths") — the
+  // same convention this plan (test-specs.md's flagged relative-dir
+  // assumption, resolved here during implementation) extends to
+  // --emit-html. Not realpath()'d: the directory need not exist yet
+  // (prepareEmitHtmlDir creates it, plan.md Q4), matching the existing
+  // "the path does not need to exist on the filesystem" contract for
+  // virtualFilename (analyzer.md §5.2).
+  const emitHtmlDir =
+    options.emitHtmlDir !== undefined
+      ? resolve(workspaceRoot, options.emitHtmlDir)
+      : undefined;
+
   const settingsResult = await resolveCliSettings({
     workspaceRoot,
     cwd,
@@ -126,6 +139,7 @@ export async function runVueHtmlBridgeCli(
     signal: io.signal,
     renderer,
     notice: io.writeStderr,
+    emitHtmlDir,
     moduleResolver: io.moduleResolver,
     builtins: io.builtins,
     logger: io.logger,
