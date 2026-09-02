@@ -1,5 +1,12 @@
 # @vue-html-bridge/language-server
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [3b99009]
+  - @vue-html-bridge/analyzer@0.2.0
+
 ## 0.1.2
 
 ### Patch Changes
