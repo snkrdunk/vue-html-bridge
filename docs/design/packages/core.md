@@ -316,7 +316,7 @@ The Phase 0 spike (S1) fixed the complete grammar → evaluator mapping as a run
 
 - A custom component itself, and its children, are not emitted.
 - A tag matching `GenerateOptions.customElements` (Web Components) is emitted as a native element, not treated as a component.
-- `<slot>` and its fallback children are not emitted.
+- `<slot>` itself is never emitted as an element, regardless of whether it is empty. An empty `<slot>` (no children, or fallback content that itself produces no output — e.g. only whitespace or comments) continues to emit nothing. Non-empty fallback content replaces the `<slot>` element and is evaluated like any other template children at that position — the same v-if/v-for/directive/diagnostic handling as everywhere else, with no `<slot>`-specific special-casing of the content itself. (Unlike `Transition`/`Teleport`'s `#default`-template unwrapping below, a `<slot>`'s children are already its fallback content directly — there is no template-wrapper convention to unwrap.)
 - Slot content written by the consumer is not emitted either.
 - As a result, the content model across a component boundary is not verified.
 
