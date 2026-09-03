@@ -43,7 +43,7 @@ const SAMPLE_DIAGNOSTIC: CliDiagnostic = {
 };
 
 describe("createNdjsonRenderer (cli.md §7.2)", () => {
-  it("start() emits exactly {type:'meta', version: 1} as the first line", () => {
+  it("start() emits exactly the current versioned meta record as the first line", () => {
     const { lines, write } = collect();
     createNdjsonRenderer(write).start();
     const [record] = parseAll(lines);

@@ -29,10 +29,14 @@ src/components/Menu.vue:6:27 error no-refer-to-non-existent-id
 3 files analyzed: 1 error, 0 warnings, 0 infos, 0 hints
 ```
 
+By default, only error and warning diagnostics are shown and counted. Pass
+`--verbose` to include info and hint diagnostics as well; the same filtering
+applies to text and NDJSON output and to `--fail-on` evaluation.
+
 With no positional arguments, the `include` setting (default `**/*.vue`,
 relative to `--workspace-root`, default the current directory) is used
-instead. Exit code `0` means no diagnostic reached the `--fail-on` threshold
-(default `error`); `1` means one did; `2` means a run-level problem occurred
+instead. Exit code `0` means no visible diagnostic reached the `--fail-on`
+threshold (default `error`); `1` means one did; `2` means a run-level problem occurred
 (a bad argument, a fatal settings issue, a file that couldn't be read, an
 adapter that failed to load) — see below. `130`/`143` on `SIGINT`/`SIGTERM`.
 

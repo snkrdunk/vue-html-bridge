@@ -59,7 +59,7 @@ describe("parseArgv: general flag surface (cli.md §4.2)", () => {
     ]);
   });
 
-  it("CLI-only options: --config, --workspace-root, --format, --fail-on, --untrusted, --no-color", () => {
+  it("CLI-only options: --config, --workspace-root, --format, --fail-on, --verbose, --untrusted, --no-color", () => {
     const result = parseArgv([
       "--config",
       "custom.json",
@@ -69,6 +69,7 @@ describe("parseArgv: general flag surface (cli.md §4.2)", () => {
       "ndjson",
       "--fail-on",
       "warning",
+      "--verbose",
       "--untrusted",
       "--no-color",
     ]);
@@ -79,17 +80,19 @@ describe("parseArgv: general flag surface (cli.md §4.2)", () => {
       workspaceRoot: "/tmp/ws",
       format: "ndjson",
       failOn: "warning",
+      verbose: true,
       untrusted: true,
       noColor: true,
     });
   });
 
-  it("defaults format to text and fail-on to error", () => {
+  it("defaults format to text, fail-on to error, and verbose to false", () => {
     const result = parseArgv([]);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     expect(result.options.format).toBe("text");
     expect(result.options.failOn).toBe("error");
+    expect(result.options.verbose).toBe(false);
   });
 
   it("--emit-html <dir> (plan.md T3, ADR-0011)", () => {

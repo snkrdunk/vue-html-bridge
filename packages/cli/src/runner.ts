@@ -57,6 +57,8 @@ export interface RunCliOptions {
   settings: ResolvedVueHtmlBridgeSettings;
   workspaceTrusted: boolean;
   failOn: FailOnThreshold;
+  /** Show info and hint diagnostics in addition to errors and warnings. Default false. */
+  verbose?: boolean;
   signal: AbortSignal;
   renderer: OutputRenderer;
   /** `--emit-html <dir>` (plan.md T5, ADR-0011). Opt-in; undefined = no behavior change (REQ-8). */
@@ -255,14 +257,20 @@ export async function runCli(options: RunCliOptions): Promise<RunCliResult> {
           projectDiagnostic(diagnostic, index, relPath),
         ),
       );
-      for (const diagnostic of projected) {
+      const visibleDiagnostics = projected.filter(
+        (diagnostic) =>
+          options.verbose === true ||
+          diagnostic.severity === "error" ||
+          diagnostic.severity === "warning",
+      );
+      for (const diagnostic of visibleDiagnostics) {
         tallySeverity(counts, diagnostic.severity);
         if (severityMeetsThreshold(diagnostic.severity, options.failOn)) {
           hasThresholdDiagnostic = true;
         }
       }
       counts.filesAnalyzed += 1;
-      options.renderer.file(relPath, projected);
+      options.renderer.file(relPath, visibleDiagnostics);
 
       if (
         emitHtmlReady &&

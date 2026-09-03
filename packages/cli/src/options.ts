@@ -6,7 +6,7 @@
 //    `applyValidatorFlagOps`, applied by the caller *after* `resolveSettings`
 //    runs, on top of the already-resolved `validators[]`);
 //  - the CLI-only options (`--config`, `--workspace-root`, `--format`,
-//    `--fail-on`, `--untrusted`, `--no-color`);
+//    `--fail-on`, `--verbose`, `--untrusted`, `--no-color`);
 //  - `--help`/`--version` flags and usage errors.
 //
 // `resolveSettings` (settings.md §4) does the actual type/range validation
@@ -50,6 +50,7 @@ export interface ParsedCliOptions {
   emitHtmlDir?: string;
   format: OutputFormat;
   failOn: FailOnThreshold;
+  verbose: boolean;
   untrusted: boolean;
   noColor: boolean;
   help: boolean;
@@ -110,6 +111,7 @@ export function parseArgv(argv: readonly string[]): ParseArgvResult {
   let emitHtmlDir: string | undefined;
   let format: OutputFormat | undefined;
   let failOn: FailOnThreshold | undefined;
+  let verbose = false;
   let untrusted = false;
   let noColor = false;
   let help = false;
@@ -129,6 +131,9 @@ export function parseArgv(argv: readonly string[]): ParseArgvResult {
         break;
       case "--version":
         version = true;
+        break;
+      case "--verbose":
+        verbose = true;
         break;
       case "--untrusted":
         untrusted = true;
@@ -279,6 +284,7 @@ export function parseArgv(argv: readonly string[]): ParseArgvResult {
       emitHtmlDir,
       format: format ?? "text",
       failOn: failOn ?? "error",
+      verbose,
       untrusted,
       noColor,
       help,
@@ -550,6 +556,8 @@ Other options:
   --format <text|ndjson>     Default: text.
   --fail-on <error|warning|info|hint|never>
                               Lowest severity that causes exit code 1. Default: error.
+  --verbose                   Show info and hint diagnostics. Errors and warnings
+                              are always shown.
   --untrusted                 Restricted trust: no external adapters, bundled
                               Markuplint defaults only.
   --no-color                  Disable color output.

@@ -21,11 +21,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFakeAdapter } from "@vue-html-bridge/adapter-testkit/fake";
 import { createNoBlinkAdapter } from "@vue-html-bridge/adapter-testkit";
 import type { ResolvedVueHtmlBridgeSettings } from "@vue-html-bridge/settings";
-import type { HtmlValidatorAdapter } from "@vue-html-bridge/validator-api";
+import type {
+  DiagnosticSeverity,
+  HtmlValidatorAdapter,
+} from "@vue-html-bridge/validator-api";
 import * as emitHtml from "./emit-html.js";
 import { createNdjsonRenderer, type CliNdjsonRecord } from "./output/ndjson.js";
 import { runCli, toFileUri } from "./runner.js";
 import type {
+  CliDiagnostic,
   OutputRenderer,
   RunLevelError,
   RunSummaryCounts,
@@ -80,14 +84,14 @@ function baseSettings(
 
 interface RecordingRenderer extends OutputRenderer {
   events: string[];
-  files: { path: string; diagnostics: readonly unknown[] }[];
+  files: { path: string; diagnostics: readonly CliDiagnostic[] }[];
   runErrors: RunLevelError[];
   summaries: RunSummaryCounts[];
 }
 
 function recordingRenderer(): RecordingRenderer {
   const events: string[] = [];
-  const files: { path: string; diagnostics: readonly unknown[] }[] = [];
+  const files: { path: string; diagnostics: readonly CliDiagnostic[] }[] = [];
   const runErrors: RunLevelError[] = [];
   const summaries: RunSummaryCounts[] = [];
   return {
@@ -275,25 +279,25 @@ describe("runCli: run outcome model (cli.md §8, §9 item 9)", () => {
 });
 
 describe("runCli: --fail-on threshold interactions (cli.md §8, §9 item 10)", () => {
-  async function runWithWarningDiagnostic(
-    failOn: "error" | "warning" | "info" | "hint" | "never",
-  ) {
+  async function runWithSeverities(options: {
+    severities: readonly DiagnosticSeverity[];
+    failOn: "error" | "warning" | "info" | "hint" | "never";
+    verbose?: boolean;
+  }) {
     const root = await tempWorkspace();
     await writeFile(join(root, "A.vue"), "<template><div></div></template>");
     const fake = createFakeAdapter({ id: "fake" });
     fake.enqueue({
-      diagnostics: [
-        {
-          ruleId: "w",
-          severity: "warning",
-          message: "a warning",
-          range: { start: 0, end: 1 },
-        },
-      ],
+      diagnostics: options.severities.map((severity) => ({
+        ruleId: `rule-${severity}`,
+        severity,
+        message: `a ${severity} diagnostic`,
+        range: { start: 0, end: 1 },
+      })),
       failures: [],
     });
     const renderer = recordingRenderer();
-    return runCli({
+    const result = await runCli({
       workspaceRoot: root,
       cwd: root,
       positionalArgs: [],
@@ -301,12 +305,24 @@ describe("runCli: --fail-on threshold interactions (cli.md §8, §9 item 10)", (
         validators: [{ adapter: "fake", enabled: true }],
       }),
       workspaceTrusted: true,
-      failOn,
+      failOn: options.failOn,
+      verbose: options.verbose,
       signal: new AbortController().signal,
       renderer,
       notice: () => {},
       builtins: new Map([["fake", fake.adapter]]),
     });
+    return { renderer, result };
+  }
+
+  async function runWithWarningDiagnostic(
+    failOn: "error" | "warning" | "info" | "hint" | "never",
+  ) {
+    const { result } = await runWithSeverities({
+      severities: ["warning"],
+      failOn,
+    });
+    return result;
   }
 
   it("--fail-on warning: a warning diagnostic triggers exit 1", async () => {
@@ -329,6 +345,69 @@ describe("runCli: --fail-on threshold interactions (cli.md §8, §9 item 10)", (
       exitCode: 0,
     });
   });
+
+  it("without --verbose, renders and counts only errors and warnings", async () => {
+    const { renderer, result } = await runWithSeverities({
+      severities: ["error", "warning", "info", "hint"],
+      failOn: "never",
+    });
+
+    expect(result).toEqual({ interrupted: false, exitCode: 0 });
+    expect(renderer.files).toHaveLength(1);
+    expect(
+      renderer.files[0]!.diagnostics.map(({ severity }) => severity),
+    ).toEqual(["error", "warning"]);
+    expect(renderer.summaries[0]).toEqual({
+      filesAnalyzed: 1,
+      errors: 1,
+      warnings: 1,
+      infos: 0,
+      hints: 0,
+      runErrors: 0,
+    });
+  });
+
+  it("with --verbose, renders and counts all diagnostic severities", async () => {
+    const { renderer, result } = await runWithSeverities({
+      severities: ["error", "warning", "info", "hint"],
+      failOn: "never",
+      verbose: true,
+    });
+
+    expect(result).toEqual({ interrupted: false, exitCode: 0 });
+    expect(renderer.files).toHaveLength(1);
+    expect(
+      renderer.files[0]!.diagnostics.map(({ severity }) => severity),
+    ).toEqual(["error", "warning", "info", "hint"]);
+    expect(renderer.summaries[0]).toEqual({
+      filesAnalyzed: 1,
+      errors: 1,
+      warnings: 1,
+      infos: 1,
+      hints: 1,
+      runErrors: 0,
+    });
+  });
+
+  it.each(["info", "hint"] as const)(
+    "a hidden %s diagnostic does not meet the fail-on threshold unless --verbose is set",
+    async (severity) => {
+      const hidden = await runWithSeverities({
+        severities: [severity],
+        failOn: severity,
+      });
+      expect(hidden.result).toEqual({ interrupted: false, exitCode: 0 });
+      expect(hidden.renderer.files[0]!.diagnostics).toEqual([]);
+
+      const visible = await runWithSeverities({
+        severities: [severity],
+        failOn: severity,
+        verbose: true,
+      });
+      expect(visible.result).toEqual({ interrupted: false, exitCode: 1 });
+      expect(visible.renderer.files[0]!.diagnostics).toHaveLength(1);
+    },
+  );
 });
 
 describe("runCli: enumeration boundary violations and empty results (cli.md §6, §8)", () => {
@@ -433,7 +512,7 @@ describe("runCli: signal abort propagation (cli.md §6 'Signals', §9 item 11)",
     await runPromise;
 
     const records = lines.map((line) => JSON.parse(line) as CliNdjsonRecord);
-    expect(records[0]).toEqual({ type: "meta", version: 1 });
+    expect(records[0]).toEqual({ type: "meta", version: 2 });
     expect(records.some((record) => record.type === "summary")).toBe(false);
   });
 });

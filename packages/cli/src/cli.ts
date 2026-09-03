@@ -136,6 +136,7 @@ export async function runVueHtmlBridgeCli(
     settings: settingsResult.settings,
     workspaceTrusted: settingsResult.workspaceTrusted,
     failOn: options.failOn,
+    verbose: options.verbose,
     signal: io.signal,
     renderer,
     notice: io.writeStderr,

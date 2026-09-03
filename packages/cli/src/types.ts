@@ -57,6 +57,7 @@ export interface RunLevelError {
 
 export interface RunSummaryCounts {
   filesAnalyzed: number;
+  /** Counts reflect diagnostics visible under the current verbosity policy. */
   errors: number;
   warnings: number;
   infos: number;
