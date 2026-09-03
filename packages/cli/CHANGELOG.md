@@ -1,5 +1,11 @@
 # @vue-html-bridge/cli
 
+## 0.3.0
+
+### Minor Changes
+
+- d6a519d: Add a `--verbose` flag and show info and hint diagnostics only when it is set.
+
 ## 0.2.0
 
 ### Minor Changes
