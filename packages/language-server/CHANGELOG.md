@@ -1,5 +1,12 @@
 # @vue-html-bridge/language-server
 
+## 0.1.4
+
+### Patch Changes
+
+- @vue-html-bridge/analyzer@0.2.1
+  - @vue-html-bridge/settings@0.2.0
+
 ## 0.1.3
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # vue-html-bridge
 
+## 0.3.0
+
+### Minor Changes
+
+- 38d4eb2: Evaluate non-empty `<slot>` fallback content as real template content instead of silently dropping it; empty slots are still ignored.
+
 ## 0.2.1
 
 ### Patch Changes
