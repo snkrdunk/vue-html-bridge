@@ -799,7 +799,7 @@ class Renderer {
     }
 
     const tag = node.tag;
-    if (tag === "slot") return [];
+    if (tag === "slot") return this.renderChildren(node.children, scope);
     if (tag === "Suspense") return this.renderSuspense(node, scope);
     if (["Transition", "Teleport"].includes(tag)) {
       return this.renderChildren(unwrapDefaultSlot(node.children), scope);

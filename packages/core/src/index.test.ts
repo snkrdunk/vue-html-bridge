@@ -354,6 +354,459 @@ b">a
     expect(result.variants).toEqual([]);
     expect(result.diagnostics[0]?.code).toBe("unsupported-template-source");
   });
+
+  // test-specs.md TC-2 through TC-16 (slot-fallback-validation SDD run).
+  // TC-1 is the pre-existing test above,
+  // "excludes components and slots silently, and diagnoses v-html and
+  // custom directives" — it is re-run, not rewritten.
+
+  it("TC-2: whitespace-only slot fallback content produces no output", async () => {
+    const source = `<template><div><slot name="x">
+</slot></div></template>`;
+    const result = await generateVariants({
+      filename: "/p/WsSlot.vue",
+      source,
+    });
+    expect(result.variants).toHaveLength(1);
+    expect(result.variants[0]?.html).toBe("<div></div>");
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("TC-3: comment-only slot fallback content produces no output", async () => {
+    const source = `<template><div><slot name="x"><!-- placeholder --></slot></div></template>`;
+    const result = await generateVariants({
+      filename: "/p/CommentSlot.vue",
+      source,
+    });
+    expect(result.variants).toHaveLength(1);
+    expect(result.variants[0]?.html).toBe("<div></div>");
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('TC-4: a slot fallback child gated by v-if="false" produces no output', async () => {
+    const source = `<template><div><slot name="x"><img v-if="false" /></slot></div></template>`;
+    const result = await generateVariants({
+      filename: "/p/FalseIfSlot.vue",
+      source,
+    });
+    // A literal v-if condition is, pre-existing and unrelated to this
+    // feature (confirmed via a control case with no slot involved at all —
+    // see test-results.md), still promoted to a [true, false] decision by
+    // DecisionCollector rather than recognized as a compile-time constant,
+    // so this produces 2 identical-html variants rather than 1. What FR-6
+    // actually requires — that the gated fallback child contributes no
+    // output — holds for every one of them, which is what this asserts.
+    expect(result.variants.length).toBeGreaterThan(0);
+    for (const variant of result.variants) {
+      expect(variant.html).toBe("<div></div>");
+    }
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("TC-5: a named slot's fallback content replaces it with no leaked <slot> tag or name attribute", async () => {
+    const source = `<template><div><slot name="header"><h1>Title</h1></slot></div></template>`;
+    const result = await generateVariants({
+      filename: "/p/NamedSlot.vue",
+      source,
+    });
+    expect(result.variants[0]?.html).toBe("<div><h1>Title</h1></div>");
+    expect(result.variants[0]?.html).not.toContain("<slot");
+    expect(result.variants[0]?.html).not.toContain('name="header"');
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("TC-6: v-if/v-else slot fallback branches, one with an undeclared custom directive", async () => {
+    const source = `<script setup lang="ts">
+defineProps<{ showsCartIcon: boolean }>();
+</script>
+<template>
+  <div class="image">
+    <slot name="image">
+      <img v-if="!showsCartIcon" src="/thumb.jpg" alt="item" />
+      <img v-else v-src="'/cart-icon.svg'" class="cart-icon" alt="cart" />
+    </slot>
+  </div>
+</template>`;
+    const result = await generateVariants({
+      filename: "/p/SlotBranch.vue",
+      source,
+    });
+    expect(result.variants).toHaveLength(2);
+    const showsThumbnail = result.variants.find(
+      (variant) => variant.decisions[0]?.value === false,
+    );
+    const showsIcon = result.variants.find(
+      (variant) => variant.decisions[0]?.value === true,
+    );
+    expect(showsThumbnail?.html).toBe(
+      '<div class="image"><img alt="item" src="/thumb.jpg"></div>',
+    );
+    expect(showsIcon?.html).toBe(
+      '<div class="image"><img alt="cart" class="cart-icon"></div>',
+    );
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "custom-directive-not-modeled",
+        message: "The DOM effects of v-src are not modeled.",
+      }),
+    );
+    for (const variant of result.variants) {
+      expect(variant.html).not.toContain("<slot");
+      expect(variant.html).not.toContain('name="image"');
+    }
+  });
+
+  it("TC-7: default and named slot, both with non-empty fallback, in one template", async () => {
+    const source = `<template><slot name="x"><p>A</p></slot><slot><p>B</p></slot></template>`;
+    const result = await generateVariants({
+      filename: "/p/BothSlots.vue",
+      source,
+    });
+    expect(result.variants).toHaveLength(1);
+    expect(result.variants[0]?.html).toBe("<p>A</p><p>B</p>");
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("TC-8: default and named slot, both empty, in one template", async () => {
+    const source = `<template><div><slot name="x" /><slot></slot></div></template>`;
+    const result = await generateVariants({
+      filename: "/p/BothEmptySlots.vue",
+      source,
+    });
+    expect(result.variants[0]?.html).toBe("<div></div>");
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("TC-9: a slot with fallback content used as a consumer-supplied child of an unrecognized component never leaks", async () => {
+    const source = `<template><div>before</div><MyComp><slot name="x"><p>fallback-marker</p></slot></MyComp><div>after</div></template>`;
+    const result = await generateVariants({
+      filename: "/p/DroppedComp.vue",
+      source,
+    });
+    expect(result.variants[0]?.html).toBe("<div>before</div><div>after</div>");
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("TC-10: v-for directly on the slot element repeats its fallback content per iteration", async () => {
+    const source = `<script setup lang="ts">
+defineProps<{ items: string[] }>();
+</script>
+<template><ul><slot v-for="item in items" name="row">{{ item }}</slot></ul></template>`;
+    const result = await generateVariants({
+      filename: "/p/SlotForEach.vue",
+      source,
+    });
+    expect(result.variants.map((variant) => variant.html)).toEqual([
+      "<ul></ul>",
+      "<ul>dummy-string</ul>",
+      "<ul>dummy-stringdummy-string</ul>",
+    ]);
+    for (const variant of result.variants) {
+      expect(variant.html).not.toContain("<slot");
+    }
+  });
+
+  it("TC-11: v-if directly on the slot element itself is unaffected by this feature", async () => {
+    const source = `<script setup lang="ts">
+defineProps<{ cond: boolean }>();
+</script>
+<template><div><slot v-if="cond" name="x"><p>shown</p></slot></div></template>`;
+    const result = await generateVariants({
+      filename: "/p/SlotIf.vue",
+      source,
+    });
+    expect(result.variants).toHaveLength(2);
+    const shown = result.variants.find(
+      (variant) => variant.decisions[0]?.value === true,
+    );
+    const hidden = result.variants.find(
+      (variant) => variant.decisions[0]?.value === false,
+    );
+    expect(shown?.html).toBe("<div><p>shown</p></div>");
+    expect(hidden?.html).toBe("<div></div>");
+  });
+
+  it("TC-12: a slot's fallback content nested inside Transition renders normally", async () => {
+    const source = `<template><Transition name="fade"><slot name="x"><p>content</p></slot></Transition></template>`;
+    const result = await generateVariants({
+      filename: "/p/SlotInTransition.vue",
+      source,
+    });
+    expect(result.variants).toHaveLength(1);
+    expect(result.variants[0]?.html).toBe("<p>content</p>");
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("TC-13: a named slot's fallback content nested inside Suspense's #default branch coexists with Suspense's own branch selection", async () => {
+    const source = `<template>
+  <Suspense>
+    <template v-slot:default><slot name="x"><p>content</p></slot></template>
+    <template v-slot:fallback><p>loading</p></template>
+  </Suspense>
+</template>`;
+    const result = await generateVariants({
+      filename: "/p/SlotInSuspense.vue",
+      source,
+    });
+    expect(result.variants.map((variant) => variant.html).sort()).toEqual([
+      "<p>content</p>",
+      "<p>loading</p>",
+    ]);
+  });
+
+  it("TC-15: v-bind and v-model on a slot fallback child work exactly as elsewhere", async () => {
+    const source = `<script setup lang="ts">
+defineProps<{ hint: string }>();
+</script>
+<template>
+  <div>
+    <slot name="search">
+      <input v-model="query" :placeholder="hint" />
+    </slot>
+  </div>
+</template>`;
+    const result = await generateVariants({
+      filename: "/p/SlotBindModel.vue",
+      source,
+    });
+    expect(result.variants[0]?.html).toBe(
+      '<div><input placeholder="dummy-string" value="dummy-string"></div>',
+    );
+    expect(result.variants[0]?.html).not.toContain("<slot");
+    expect(result.variants[0]?.html).not.toContain('name="search"');
+  });
+
+  it("TC-16: v-html and v-text on slot fallback children behave exactly as they do outside a slot", async () => {
+    const source = `<template>
+  <div>
+    <slot name="a"><div v-html="raw"></div></slot>
+    <slot name="b"><span v-text="label"></span></slot>
+  </div>
+</template>`;
+    const result = await generateVariants({
+      filename: "/p/SlotHtmlText.vue",
+      source,
+    });
+    expect(result.variants[0]?.html).toBe(
+      "<div><div></div><span>dummy-string</span></div>",
+    );
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "v-html-content-not-analyzed",
+    ]);
+    expect(result.variants[0]?.html).not.toContain("<slot");
+    expect(result.variants[0]?.html).not.toContain('name="a"');
+    expect(result.variants[0]?.html).not.toContain('name="b"');
+  });
+
+  it("TC-14: OrderItem.vue fixture — named slot fallback becomes visible while the trailing empty default slot stays invisible, simultaneously", async () => {
+    // Literal content of result/OrderItem.vue's <template> and <script setup>
+    // (the <style> block is omitted — irrelevant to HTML generation, and no
+    // other test in this file embeds one either). Copied verbatim, not a
+    // re-derived approximation, per test-specs.md TC-14's own instruction —
+    // this is the exact real-world fixture that motivated this feature.
+    const source = `<template>
+  <a
+    class="list-item"
+    :href="href"
+    @click="() => onItemClick()"
+  >
+    <div class="image">
+      <slot name="image">
+        <img
+          v-if="!showsCartIcon(transactionItem)"
+          :src="transactionItem.thumbnailUrl"
+          :alt="\`Item image for \${transactionItem.name}\`"
+        />
+        <img
+          v-else
+          v-src="'/img/account/cart-icon.svg'"
+          alt="Shopping cart"
+          class="cart-icon"
+        />
+      </slot>
+    </div>
+    <div class="info-wrapper">
+      <div class="texts">
+        <template v-if="isOrder(transactionItem) && isCartOrder(transactionItem)">
+          <p class="title">Purchase ID {{ transactionItem.id }}</p>
+        </template>
+
+        <template v-else>
+          <p class="title">{{ transactionItem.name }}</p>
+          <p class="size">
+            <template v-if="isListing(transactionItem)">Size: {{ transactionItem.size }}</template>
+            <template v-else>
+              <div
+                v-if="transactionItem.itemCondition !== ''"
+                class="condition"
+              >
+                {{ transactionItem.itemCondition }}
+              </div>
+              <template v-else>
+                {{ capitalize(transactionItem.size) }}
+              </template>
+            </template>
+          </p>
+          <p
+            v-if="isListing(transactionItem)"
+            class="price"
+          >
+            Listing Price: {{ transactionItem.price }}
+          </p>
+        </template>
+
+        <template v-if="isOrder(transactionItem)">
+          <p class="transaction-status">
+            <template v-if="isOrderCompleted(transactionItem)">
+              Transaction Completed
+              <span class="date">{{ formatFullDate(transactionItem.orderCompletedAt) }}</span>
+            </template>
+            <template v-else-if="isOrderCancelled(transactionItem)">
+              Canceled
+              <span class="date">{{ formatFullDate(transactionItem.orderCanceledAt) }}</span>
+            </template>
+            <template v-else-if="isOrderActive(transactionItem) || isCartOrder(transactionItem)">
+              <template v-if="hasProcessingStatusLabel(transactionItem)">
+                {{ transactionItem.processingStatusLabel }}
+              </template>
+              <template v-else-if="hasProcessingStatus(transactionItem)">
+                {{ transactionItem.processingStatus }}
+              </template>
+            </template>
+          </p>
+          <p
+            v-if="!isCartOrder(transactionItem)"
+            class="transaction-id"
+          >
+            <template v-if="isCartSuborder(transactionItem)">(Order ID: {{ transactionItem.transactionId }})</template>
+            <template v-else>(Order ID: {{ transactionItem.id }})</template>
+          </p>
+        </template>
+        <slot></slot>
+      </div>
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        class="arrow"
+      >
+        <path
+          d="M5.54 14C5.39 14 5.29 13.95 5.14 13.84C5.04554 13.7281 4.99371 13.5864 4.99371 13.44C4.99371 13.2936 5.04554 13.1519 5.14 13.04L9.74 8.03L5.14 2.96C5.04554 2.84813 4.99371 2.70643 4.99371 2.56C4.99371 2.41358 5.04554 2.27188 5.14 2.16C5.18687 2.10844 5.24399 2.06725 5.30771 2.03906C5.37142 2.01087 5.44033 1.99631 5.51 1.99631C5.57968 1.99631 5.64858 2.01087 5.7123 2.03906C5.77602 2.06725 5.83314 2.10844 5.88 2.16L10.85 7.66C11.05 7.86 11.05 8.24 10.85 8.46L5.93 13.84C5.78 13.94 5.68 14 5.53 14H5.54Z"
+          fill="currentColor"
+        />
+      </svg>
+    </div>
+  </a>
+</template>
+
+<script setup lang="ts">
+import { capitalize, computed } from 'vue';
+import vSrc from '@/directives/vSrc';
+import { ListingProduct } from '@/types/account';
+import { ListOrder, OrderInCart } from '@/types/order';
+import { LISTING_STATUS } from '@/utils/constants';
+import { formatFullDate } from '@/utils/formatter';
+
+type Order = ListOrder | OrderInCart;
+type TransactionItem = Order | ListingProduct;
+const props = defineProps<{
+  transactionItem: TransactionItem;
+}>();
+
+const isOrder = (item: TransactionItem): item is Order => 'id' in item;
+const isCartOrder = (item: TransactionItem) => 'isCartOrder' in item && item.isCartOrder;
+const showsCartIcon = (item: TransactionItem) => isCartOrder(item) && !('isInstant' in item && item.isInstant);
+const isListing = (item: TransactionItem): item is ListingProduct => 'uid' in item;
+
+const isCartSuborder = (order: Order): order is OrderInCart => 'transactionId' in order && order.transactionId.length > 0;
+const isOrderActive = (order: Order) => 'status' in order && order.status === 'active';
+const isOrderCompleted = (order: Order): order is ListOrder & { orderCompletedAt: string } =>
+  'orderCompletedAt' in order && order.orderCompletedAt !== null;
+const isOrderCancelled = (order: Order): order is ListOrder & { orderCanceledAt: string } =>
+  'orderCanceledAt' in order && order.orderCanceledAt !== null;
+const hasProcessingStatusLabel = (order: Order): order is ListOrder => 'processingStatusLabel' in order;
+const hasProcessingStatus = (order: Order): order is OrderInCart => 'processingStatus' in order;
+
+const href = computed(() => {
+  // Listing doesn't use href since we have to prevent navigation if the item
+  // is in process
+  if (isListing(props.transactionItem)) {
+    return '#';
+  }
+
+  // Orders doesn't have a special navigation requirement
+  if (isCartSuborder(props.transactionItem)) {
+    return \`/en/account/orders/cart/order/\${props.transactionItem.id}?slide=right\`;
+  }
+  if (isCartOrder(props.transactionItem)) {
+    return \`/en/account/orders/cart/\${props.transactionItem.id}/items?slide=right\`;
+  }
+  return \`/en/account/orders/\${props.transactionItem.id}?slide=right\`;
+});
+
+const onItemClick = () => {
+  const { transactionItem } = props;
+  if (isOrder(transactionItem)) {
+    return;
+  }
+
+  if (transactionItem.status === LISTING_STATUS.PROCESSING) {
+    alert('This item is in the process of being purchased and cannot be edited.');
+    return;
+  }
+  globalThis.location.href = \`/en/account/listings/\${transactionItem.uid}?slide=view\`;
+};
+</script>
+`;
+    const result = await generateVariants({
+      filename: "/p/OrderItem.vue",
+      source,
+    });
+
+    // FR-9a: every variant's .image is exactly one of the two known
+    // shapes — never empty, never anything else. This directly falsifies
+    // today's bug (every variant currently shows an empty .image div) for
+    // every generated variant, not just some of them, without depending on
+    // knowing the total variant count or how decisions are enumerated.
+    const imageShape =
+      /<div class="image">(?:<img alt="dummy-string" src="dummy-string">|<img alt="Shopping cart" class="cart-icon">)<\/div>/;
+    for (const variant of result.variants) {
+      expect(variant.html).toMatch(imageShape);
+    }
+
+    // Both branches are actually reachable in this run, not just
+    // structurally possible.
+    expect(
+      result.variants.some((variant) =>
+        variant.html.includes(
+          '<div class="image"><img alt="dummy-string" src="dummy-string"></div>',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      result.variants.some((variant) =>
+        variant.html.includes(
+          '<div class="image"><img alt="Shopping cart" class="cart-icon"></div>',
+        ),
+      ),
+    ).toBe(true);
+
+    // FR-3: the undeclared v-src directive still produces its existing,
+    // unchanged diagnostic — proving the fallback content goes through
+    // real directive-diagnostic machinery, not a placeholder path.
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "custom-directive-not-modeled" }),
+    );
+
+    // FR-2 + FR-9b: neither slot's own tag ever leaks, for any variant —
+    // covers both the non-empty named slot and the genuinely-empty
+    // trailing default slot holding simultaneously across the whole file.
+    for (const variant of result.variants) {
+      expect(variant.html).not.toContain("<slot");
+    }
+  });
 });
 
 // plan.md "Custom-directive attribute value modeling ('Plan B')" / ADR-0010.
