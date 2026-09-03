@@ -105,6 +105,7 @@ Additional CLI-only options (not part of the settings schema):
 | `--emit-html <dir>` | Debug dump (ADR-0011): writes every generated HTML variant, plus a JSON decisions/mapping sidecar, under `<dir>`, reusing the virtual-filename convention (§5.2 of analyzer.md). A relative `<dir>` resolves against `--workspace-root`, matching that flag's own documented role. Opt-in; omitting it leaves default behavior unchanged (no writes, no cache/perf cost) |
 | `--format <text|ndjson>` | Output format (§7). Default `text` |
 | `--fail-on <error|warning|info|hint|never>` | Lowest severity that causes exit code 1. Default `error` |
+| `--verbose` | Include `info` and `hint` diagnostics in output, summary counts, and `--fail-on` evaluation. Without it, only `error` and `warning` diagnostics are visible |
 | `--untrusted` | Run with the restricted trust behavior (§5) |
 | `--help`, `--version` | Print and exit 0 |
 | `--no-color` | Disable color. Color is used only when stdout is a TTY and the `NO_COLOR` environment variable is unset |
@@ -148,7 +149,7 @@ Trust never enables adapter auto-discovery. External adapters must be explicitly
    - The final list is sorted by path so output order and NDJSON goldens are deterministic.
 3. Read each file from disk and call `analyze` with the content as the source snapshot. `AnalyzeRequest.uri` is built from the resolved absolute real path with Node's `pathToFileURL` (its Windows drive-letter and percent-encoding rules are the contract), so the same file always yields the same URI. There are no unsaved buffers and no document versions in a one-shot run; `documentVersion` is left unset. A file read error is a run-level error; remaining files are still analyzed.
 4. Files are analyzed sequentially in the initial version. `maxConcurrency` still governs adapter-level parallelism inside each `analyze` call, which is where the time goes. File-level parallelism is an open question (§10).
-5. Rendering depends on the output mode: both `--format text` and `--format ndjson` render each file's results as they complete (streaming) — NDJSON's line-delimited shape is exactly what makes this safe: unlike a single buffered document, a consumer can process each line as it arrives (§7.2). Then the analyzer is disposed and the process exits per §8.
+5. Before rendering, diagnostics are filtered by visibility: `error` and `warning` are always included; `info` and `hint` are included only with `--verbose`. Both `--format text` and `--format ndjson` then render each file's visible results as they complete (streaming) — NDJSON's line-delimited shape is exactly what makes this safe: unlike a single buffered document, a consumer can process each line as it arrives (§7.2). Summary counts and `--fail-on` evaluation use this same visible set. Then the analyzer is disposed and the process exits per §8.
 
 **Signals.** SIGINT and SIGTERM abort the in-flight `analyze` through its `AbortSignal`, skip remaining files, dispose sessions best-effort, and exit with the conventional code — 130 for SIGINT, 143 for SIGTERM. Cleanup is bounded and never blocks exit indefinitely (the same rule as language-server.md §12); a second signal during cleanup exits immediately. Aborted results are discarded, never rendered — cancellation is not a diagnostic (monorepo.md §11) — and in NDJSON mode an interrupted run's stream simply stops after the last completed line, with no `summary` line (§7.2).
 
@@ -159,6 +160,8 @@ The CLI converts source UTF-16 offsets to line/column at its boundary, the same 
 All paths in output are workspace-relative and use `/` separators on every platform: CI artifacts stay reproducible across machines and do not embed absolute paths from the build host. (Files outside the workspace root never appear — §6 rejects them.)
 
 Diagnostic ordering within a file is deterministic: range, severity, origin, `adapterId`, code, message.
+
+Diagnostic visibility is format-independent. By default, only `error` and `warning` diagnostics are emitted and counted. `--verbose` additionally emits and counts `info` and `hint` diagnostics. Files with no visible diagnostics are still represented in output.
 
 ### 7.1 `--format text` (default)
 
@@ -172,7 +175,7 @@ src/components/Menu.vue:5:11 warning invalid-attr
     related src/components/Menu.vue:8:24 referenced from aria-controls
 ```
 
-Run-level errors (§8) are printed to stderr as they occur. A final summary line on stdout reports file and per-severity counts.
+Run-level errors (§8) are printed to stderr as they occur. A final summary line on stdout reports file and visible per-severity counts.
 
 ### 7.2 `--format ndjson`
 
@@ -188,7 +191,7 @@ export type CliNdjsonRecord =
 /** Always the first line of any run that reaches analysis. */
 export interface CliNdjsonMeta {
   type: "meta";
-  version: 1;
+  version: 2;
 }
 
 /** One per file, emitted as that file's analysis completes. */
@@ -246,14 +249,15 @@ export interface CliNdjsonSummary {
 Contract:
 
 - **Projection from `SourceDiagnostic`** (analyzer.md §3): `severity`, `code`, `message`, `origin`, `adapterId`, `codeDescriptionHref`, the primary range, and `relatedInformation` are carried over; `evidence` is projected to `variantCount` + `truncated` only. Everything else (`id`, variant IDs, example decisions, `generatedExample`) is internal and excluded. The output never contains generated HTML or source text.
-- **Ordering:** `meta` is always the first line of any run that reaches analysis. `file` and `runError` lines are emitted in completion order, which under §6's current sequential, sorted-by-path processing is exactly path order — that guarantee holds only as long as file-level `analyze` stays sequential (§10's still-open file-level-parallelism question); a future move to parallel execution would need to either preserve it or explicitly relax it. `summary` is always the last line, present if and only if the run completed (see stdout validity below), and counts every severity so any `--fail-on` threshold can be recomputed without re-scanning every `file` line.
+- **Ordering:** `meta` is always the first line of any run that reaches analysis. `file` and `runError` lines are emitted in completion order, which under §6's current sequential, sorted-by-path processing is exactly path order — that guarantee holds only as long as file-level `analyze` stays sequential (§10's still-open file-level-parallelism question); a future move to parallel execution would need to either preserve it or explicitly relax it. `summary` is always the last line, present if and only if the run completed (see stdout validity below), and counts every visible severity so any applicable `--fail-on` threshold can be recomputed without re-scanning every `file` line.
 - **Compatibility:** adding an optional field to an existing record, or adding a new `type` value, is a minor change; consumers must ignore unknown fields and skip records whose `type` they don't recognize. Changing or removing a field, or changing a record's semantics, bumps `version` (carried on the `meta` line).
+- **Version 2:** diagnostic arrays and summary counts contain only visible severities. `info` and `hint` require `--verbose`; without it their summary counts are zero. This visibility rule also governs `--fail-on`.
 - **stdout validity:** lines are flushed as they are produced, not buffered — this is the point of choosing NDJSON. Stdout carries zero lines when the run fails before analysis starts (argument errors, fatal settings issues — §4.1); those cases report on stderr only. Once `meta` has been written, every subsequent line up to the point of interruption is a valid, independently parseable record. A signal (§6) stops the stream after whatever `file`/`runError` lines already completed — **no `summary` line is emitted**, which is exactly how a consumer detects an interrupted run: stream ended without a `summary` record. This differs deliberately from the old buffered contract ("exactly one document or nothing"): partial NDJSON output is valid and expected on interruption, not an error state. Whenever analysis ran, output is emitted **even on exit code 2**: run-level errors appear as `runError` lines, diagnostics already produced by other adapters and files are included as `file` lines, and (unless a signal also cut the run short) a `summary` line still closes the stream — failure isolation (monorepo.md §3) applies to the output, not just the process.
 
 Example (a clean run — each line is independently valid JSON; the block as a whole is NDJSON, not one JSON document):
 
 ```text
-{"type":"meta","version":1}
+{"type":"meta","version":2}
 {"type":"file","path":"src/components/Toggle.vue","diagnostics":[{"severity":"error","code":"vue-html-bridge/non-finite-attribute-value","message":"...","origin":"validator","adapterId":"markuplint","range":{"start":116,"end":123},"position":{"startLine":6,"startColumn":19,"endLine":6,"endColumn":26},"relatedInformation":[],"evidence":{"variantCount":2,"truncated":false}}]}
 {"type":"file","path":"src/components/Menu.vue","diagnostics":[]}
 {"type":"summary","filesAnalyzed":2,"errors":1,"warnings":0,"infos":0,"hints":0,"runErrors":0}
@@ -273,12 +277,12 @@ After a run-level error, everything unaffected continues: other adapters keep va
 
 | Exit code | Meaning |
 | --- | --- |
-| 0 | Analysis ran; no run-level error; no diagnostic at or above the `--fail-on` threshold |
-| 1 | Analysis ran; no run-level error; at least one diagnostic at or above the threshold |
+| 0 | Analysis ran; no run-level error; no visible diagnostic at or above the `--fail-on` threshold |
+| 1 | Analysis ran; no run-level error; at least one visible diagnostic at or above the threshold |
 | 2 | A run-level error occurred (even if diagnostics were also produced), or the run failed before analysis: argument error, fatal settings issue (§4.1), explicit `--config` failure, or no analyzable input |
 | 130 / 143 | Interrupted (SIGINT / SIGTERM) |
 
-Precedence: signal code > 2 > 1 > 0. A misconfigured CI job must never pass as "no findings", which is why run-level errors dominate threshold results. `--fail-on never` reports everything but exits only 0, 2, or a signal code, for jobs that only collect output.
+Precedence: signal code > 2 > 1 > 0. A misconfigured CI job must never pass as "no findings", which is why run-level errors dominate threshold results. `--fail-on never` never turns diagnostics into exit 1; combine it with `--verbose` when collecting all severities without failing the run.
 
 ## 9. Tests
 
@@ -291,7 +295,7 @@ Precedence: signal code > 2 > 1 > 0. A misconfigured CI job must never pass as "
 7. NDJSON goldens for three shapes: a clean run (`meta`, `file`×N, `summary`); an exit-2 run (`meta`, `file`/`runError` lines interleaved in completion order, `summary`); an interrupted run (`meta` plus zero or more `file`/`runError` lines, no `summary`). Every line parses independently with `JSON.parse`; `meta.version` present and first; unknown `type` values and unknown fields are tolerated by the golden-comparison harness itself (documented for external consumers); no generated HTML or source text embedded.
 8. Offset → line/column conversion at the boundary: CRLF, emoji, zero-width ranges — the same fixture family as language-server §13.1, shared as fixtures.
 9. Run outcome model: multi-file × multi-adapter fixture where one adapter's session fails — the failure appears once at run level, the other adapter's diagnostics and other files' results survive in the output, exit is 2. File read error behaves the same way.
-10. Exit codes: `--fail-on` threshold interactions across all severities; run-level error dominance; `--fail-on never`.
+10. Exit codes: `--fail-on` threshold interactions across all visible severities; run-level error dominance; `--fail-on never`; default visibility excludes `info`/`hint`, while `--verbose` includes all four severities in text and NDJSON.
 11. Signals: SIGINT mid-analysis (abort, no partial rendering for the file being analyzed when the signal arrived; in NDJSON mode `meta` plus any already-completed `file`/`runError` lines remain on stdout with no trailing `summary` line; exit 130; sessions disposed); SIGTERM → 143; a second signal during cleanup exits immediately.
 12. `--untrusted` combinations: trust-sensitive settings are forced (bundled Markuplint defaults, no external adapters) while shared safe settings (`include`/`exclude`, `warnVariantCount`, `maxConcurrency`, `customElements`, `customDirectives`, output flags) still apply from the same config; behavior matches the language server's restricted session on the same fixture.
 13. External adapter loading: the shared loader's gates apply identically to the language server's (contract-tested against adapter-loader.md); a load failure disables only that adapter and is reported once.

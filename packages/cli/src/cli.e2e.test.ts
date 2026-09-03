@@ -28,6 +28,8 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createFakeAdapter } from "@vue-html-bridge/adapter-testkit/fake";
+import type { HtmlValidatorAdapter } from "@vue-html-bridge/validator-api";
 import { runVueHtmlBridgeCli } from "./cli.js";
 import type { CliNdjsonRecord } from "./output/ndjson.js";
 
@@ -44,7 +46,11 @@ async function tempWorkspace(): Promise<string> {
   return dir;
 }
 
-function io(overrides: { argv: readonly string[]; cwd: string }) {
+function io(overrides: {
+  argv: readonly string[];
+  cwd: string;
+  builtins?: ReadonlyMap<string, HtmlValidatorAdapter<unknown>>;
+}) {
   const stdout: string[] = [];
   const stderr: string[] = [];
   return {
@@ -58,6 +64,7 @@ function io(overrides: { argv: readonly string[]; cwd: string }) {
         writeStderr: (chunk) => stderr.push(chunk),
         signal: new AbortController().signal,
         version: "0.0.0-test",
+        builtins: overrides.builtins,
       }),
   };
 }
@@ -100,7 +107,7 @@ describe("CLI e2e: NDJSON goldens (cli.md §9 item 7)", () => {
       .filter((line) => line.length > 0);
     const records = lines.map((line) => JSON.parse(line) as CliNdjsonRecord);
 
-    expect(records[0]).toEqual({ type: "meta", version: 1 });
+    expect(records[0]).toEqual({ type: "meta", version: 2 });
     expect(records.at(-1)).toMatchObject({
       type: "summary",
       filesAnalyzed: 2,
@@ -148,7 +155,7 @@ describe("CLI e2e: NDJSON goldens (cli.md §9 item 7)", () => {
       .split("\n")
       .filter((line) => line.length > 0);
     const records = lines.map((line) => JSON.parse(line) as CliNdjsonRecord);
-    expect(records[0]).toEqual({ type: "meta", version: 1 });
+    expect(records[0]).toEqual({ type: "meta", version: 2 });
     expect(records.at(-1)!.type).toBe("summary");
 
     const runErrorRecords = records.filter(
@@ -176,6 +183,77 @@ describe("CLI e2e: NDJSON goldens (cli.md §9 item 7)", () => {
       { type: "summary" }
     >;
     expect(summary.runErrors).toBe(1);
+  });
+
+  it("filters info diagnostics by default and includes them with --verbose", async () => {
+    const root = await tempWorkspace();
+    await writeFile(join(root, "A.vue"), "<template><div>a</div></template>");
+
+    const fake = createFakeAdapter({ id: "fake" });
+    for (let index = 0; index < 2; index += 1) {
+      fake.enqueue({
+        diagnostics: [
+          {
+            ruleId: "info-rule",
+            severity: "info",
+            message: "informational finding",
+            range: { start: 0, end: 1 },
+          },
+        ],
+        failures: [],
+      });
+    }
+    const builtins = new Map<string, HtmlValidatorAdapter<unknown>>([
+      ["fake", fake.adapter],
+    ]);
+    const baseArgv = [
+      "--format",
+      "ndjson",
+      "--fail-on",
+      "info",
+      "--disable-validator",
+      "markuplint",
+      "--validator",
+      "fake",
+    ];
+
+    const hidden = io({ argv: baseArgv, cwd: root, builtins });
+    expect(await hidden.run()).toEqual({ interrupted: false, exitCode: 0 });
+    const hiddenRecords = hidden.stdout.map(
+      (line) => JSON.parse(line) as CliNdjsonRecord,
+    );
+    const hiddenFile = hiddenRecords.find(
+      (record): record is Extract<CliNdjsonRecord, { type: "file" }> =>
+        record.type === "file",
+    );
+    const hiddenSummary = hiddenRecords.find(
+      (record): record is Extract<CliNdjsonRecord, { type: "summary" }> =>
+        record.type === "summary",
+    );
+    expect(hiddenFile?.diagnostics).toEqual([]);
+    expect(hiddenSummary).toMatchObject({ infos: 0, hints: 0 });
+
+    const visible = io({
+      argv: [...baseArgv, "--verbose"],
+      cwd: root,
+      builtins,
+    });
+    expect(await visible.run()).toEqual({ interrupted: false, exitCode: 1 });
+    const visibleRecords = visible.stdout.map(
+      (line) => JSON.parse(line) as CliNdjsonRecord,
+    );
+    const visibleFile = visibleRecords.find(
+      (record): record is Extract<CliNdjsonRecord, { type: "file" }> =>
+        record.type === "file",
+    );
+    const visibleSummary = visibleRecords.find(
+      (record): record is Extract<CliNdjsonRecord, { type: "summary" }> =>
+        record.type === "summary",
+    );
+    expect(visibleFile?.diagnostics.map(({ severity }) => severity)).toEqual([
+      "info",
+    ]);
+    expect(visibleSummary).toMatchObject({ infos: 1, hints: 0 });
   });
 });
 

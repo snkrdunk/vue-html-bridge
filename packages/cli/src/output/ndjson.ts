@@ -11,12 +11,12 @@ import type {
   RunSummaryCounts,
 } from "../types.js";
 
-export const CLI_NDJSON_VERSION = 1;
+export const CLI_NDJSON_VERSION = 2;
 
 /** Always the first line of any run that reaches analysis. */
 export interface CliNdjsonMeta {
   type: "meta";
-  version: 1;
+  version: 2;
 }
 
 export interface CliNdjsonDiagnostic {
