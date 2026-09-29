@@ -1145,3 +1145,43 @@ defineProps<{ status: "on" | "off" }>();
     ]);
   });
 });
+
+describe("generateVariants: class/style attribute values", () => {
+  it("renders a decision-bound object inside a :class array instead of throwing on the evaluated object literal", async () => {
+    const source = `<script setup lang="ts">
+defineProps<{ compact?: boolean }>();
+</script>
+<template><nav :class="['pdp-variations', { 'pdp-variations--compact': compact }]" /></template>`;
+    const result = await generateVariants({ filename: "/p/Nav.vue", source });
+    expect(new Set(result.variants.map((variant) => variant.html))).toEqual(
+      new Set([
+        '<nav class="pdp-variations"></nav>',
+        '<nav class="pdp-variations pdp-variations--compact"></nav>',
+      ]),
+    );
+  });
+
+  it("renders a fully static object inside a :class array (no decision involved)", async () => {
+    const source = `<template><nav :class="['pdp-variations', { 'pdp-variations--compact': true }]" /></template>`;
+    const result = await generateVariants({ filename: "/p/Nav.vue", source });
+    expect(result.variants.map((variant) => variant.html)).toEqual([
+      '<nav class="pdp-variations pdp-variations--compact"></nav>',
+    ]);
+  });
+
+  it("drops a falsy entry and keeps only truthy class names, sorted, from an object inside a :class array", async () => {
+    const source = `<template><nav :class="['base', { zeta: true, alpha: true, omitted: false }]" /></template>`;
+    const result = await generateVariants({ filename: "/p/Nav.vue", source });
+    expect(result.variants[0]?.html).toBe(
+      '<nav class="base alpha zeta"></nav>',
+    );
+  });
+
+  it("merges multiple objects inside a :style array into one declaration list instead of throwing", async () => {
+    const source = `<template><div :style="[{ color: 'red' }, { background: 'blue' }]" /></template>`;
+    const result = await generateVariants({ filename: "/p/Div.vue", source });
+    expect(result.variants[0]?.html).toBe(
+      '<div style="background:blue;color:red"></div>',
+    );
+  });
+});
