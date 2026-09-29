@@ -556,7 +556,8 @@ Other options:
   --format <text|ndjson>     Default: text.
   --fail-on <error|warning|info|hint|never>
                               Lowest severity that causes exit code 1. Default: error.
-  --verbose                   Show info and hint diagnostics. Errors and warnings
+  --verbose                   Show info and hint diagnostics, and print each file
+                              before generating its variants. Errors and warnings
                               are always shown.
   --untrusted                 Restricted trust: no external adapters, bundled
                               Markuplint defaults only.
