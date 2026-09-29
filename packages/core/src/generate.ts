@@ -1596,14 +1596,22 @@ function escapeAttribute(value: string): string {
 }
 
 function formatAttributeValue(name: string, value: JsonValue): string {
-  if (Array.isArray(value)) return value.map(String).join(" ");
+  if (name === "style") return formatStyleValue(value);
+  // Vue's normalizeClass (and this generic fallback for any other array- or
+  // object-valued attribute) recurses into each array element instead of
+  // stringifying it directly: an element can itself be an object (the common
+  // `:class="[..., { active: isActive }]"` idiom) or a nested array, and
+  // template-evaluated object literals are built with Object.create(null)
+  // (expressions.ts) - they have no toString/valueOf, so a bare String(item)
+  // on one throws "Cannot convert object to primitive value" instead of
+  // going through the key-filtering branch below.
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => formatAttributeValue(name, item))
+      .filter((part) => part !== "")
+      .join(" ");
+  }
   if (isJsonObject(value)) {
-    if (name === "style") {
-      return Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => `${key}:${String(item)}`)
-        .join(";");
-    }
     return Object.entries(value)
       .filter(([, item]) => Boolean(item))
       .map(([key]) => key)
@@ -1611,6 +1619,37 @@ function formatAttributeValue(name: string, value: JsonValue): string {
       .join(" ");
   }
   return String(value);
+}
+
+// Mirrors Vue's normalizeStyle: an array of style values (objects and/or
+// nested arrays) merges into one flat declaration list rather than each
+// array element serializing to its own "key:value;..." string and those
+// being space-joined (which would produce invalid CSS text).
+function formatStyleValue(value: JsonValue): string {
+  const declarations: Record<string, JsonValue> = {};
+  collectStyleDeclarations(value, declarations);
+  return Object.entries(declarations)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => `${key}:${String(item)}`)
+    .join(";");
+}
+
+function collectStyleDeclarations(
+  value: JsonValue,
+  into: Record<string, JsonValue>,
+): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectStyleDeclarations(item, into);
+    return;
+  }
+  if (isJsonObject(value)) {
+    for (const [key, item] of Object.entries(value)) into[key] = item;
+    return;
+  }
+  // A bare string/number/boolean element inside a style array (e.g. an
+  // already-formatted "color:red" declaration string) isn't parsed back
+  // into key/value pairs here - out of scope; it contributes nothing
+  // rather than crashing.
 }
 
 function dummyValue(
