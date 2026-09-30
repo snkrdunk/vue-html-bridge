@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { GenerateOptions } from "vue-html-bridge";
-import { generationCacheKey } from "./generation-cache.js";
+import type {
+  GenerateOptions,
+  GenerateResult,
+  HtmlVariant,
+} from "vue-html-bridge";
+import {
+  approximateGenerateResultBytes,
+  generationCacheKey,
+} from "./generation-cache.js";
 
 const BASE = {
   source: "<template><p>x</p></template>",
@@ -150,4 +157,83 @@ describe("generationCacheKey: exhaustive GenerateOptions field coverage (plan.md
       );
     },
   );
+});
+
+describe("approximateGenerateResultBytes (analyzer.md §10.1/§10.3)", () => {
+  const sourceRange = (filename: string) => ({ filename, start: 0, end: 1 });
+
+  const baseVariant = (overrides: Partial<HtmlVariant> = {}): HtmlVariant => ({
+    id: "v1",
+    ordinal: 0,
+    html: "<p>x</p>",
+    decisions: [],
+    map: [],
+    ...overrides,
+  });
+
+  const baseResult = (variants: readonly HtmlVariant[]): GenerateResult => ({
+    variants,
+    diagnostics: [],
+    stats: {
+      decisionCount: 0,
+      candidateCount: variants.length,
+      emittedCount: variants.length,
+      uniqueHtmlCount: variants.length,
+      durationMs: 0,
+      warningThresholdExceeded: false,
+    },
+  });
+
+  it("counts a variant's decisions, not just its html and map (the exact field the original estimate silently dropped)", () => {
+    const withoutDecisions = baseResult([baseVariant()]);
+    const withDecisions = baseResult([
+      baseVariant({
+        decisions: [
+          {
+            decisionId: "d1",
+            displayName: "Decision 1",
+            value: "a fairly long literal value used for this decision",
+          },
+        ],
+      }),
+    ]);
+    expect(approximateGenerateResultBytes(withDecisions)).toBeGreaterThan(
+      approximateGenerateResultBytes(withoutDecisions),
+    );
+  });
+
+  it("scales with a mapping entry's nested provenance/sourceRange payload, not a fixed per-entry guess", () => {
+    const shortFilename = "/a.vue";
+    const longFilename = `/workspace/${"segment/".repeat(50)}very-long-file.vue`;
+
+    const resultFor = (filename: string): GenerateResult =>
+      baseResult([
+        baseVariant({
+          map: [
+            {
+              generated: { start: 0, end: 1 },
+              source: sourceRange(filename),
+              kind: "text",
+              provenance: {
+                kind: "source-literal",
+                sourceRange: sourceRange(filename),
+              },
+            },
+          ],
+        }),
+      ]);
+
+    expect(
+      approximateGenerateResultBytes(resultFor(longFilename)),
+    ).toBeGreaterThan(approximateGenerateResultBytes(resultFor(shortFilename)));
+  });
+
+  it("grows with variant count, so a file with a very large variant space is never mistaken for a small cache entry", () => {
+    const many = Array.from({ length: 500 }, (_, i) =>
+      baseVariant({ id: `v${i}`, html: "<p>x</p>".repeat(20) }),
+    );
+    expect(approximateGenerateResultBytes(baseResult(many))).toBeGreaterThan(
+      approximateGenerateResultBytes(baseResult([baseVariant()])) * 100,
+    );
+  });
 });
