@@ -55,7 +55,9 @@ export function normalizeOccurrence(
       virtualFilename: occurrence.virtualFilename,
       generatedRange: occurrence.generatedRange,
       code: sentinelBridgeCode(provenance.reason),
-      severity: occurrence.severity,
+      // Never inherited from the wrapped validator rule's severity — see
+      // sentinelSeverity below.
+      severity: sentinelSeverity(provenance.reason),
       message: sentinelMessage(provenance),
       primary: provenance.sourceRange,
       related: occurrence.related,
@@ -90,6 +92,30 @@ function sentinelBridgeCode(
   return reason === "non-finite-type"
     ? "vue-html-bridge/non-finite-attribute-value"
     : "vue-html-bridge/unresolved-expression-value";
+}
+
+/**
+ * Project-wide severity convention: Error is reserved for a confirmed
+ * violation of an external spec (HTML, WAI-ARIA, ...); Warning for a
+ * violation of this project's own house rules/conventions; Info for
+ * anything else surfaced only as information (e.g. for debugging). A
+ * sentinel diagnostic can never claim Error, because the real value is by
+ * definition unknown — it cannot confirm a spec violation. It resolves to
+ * Warning or Info depending on *why* the value could not be resolved:
+ *
+ * - "non-finite-type": the bound value's type is simply too broad (e.g.
+ *   `pressed: string`) to validate. The fix is a convention this project
+ *   already holds elsewhere (narrow to a literal union instead of a bare
+ *   `string`/`number`), so this is a house-rule violation: Warning.
+ * - "unresolved-expression": core's evaluator could not symbolically
+ *   evaluate the expression at all (e.g. `!item.isSold`), which is
+ *   ordinary, convention-compliant code — a pure tooling limitation with no
+ *   actionable violation to report: Info.
+ */
+function sentinelSeverity(
+  reason: "non-finite-type" | "unresolved-expression",
+): "warning" | "info" {
+  return reason === "non-finite-type" ? "warning" : "info";
 }
 
 function sentinelMessage(provenance: {
