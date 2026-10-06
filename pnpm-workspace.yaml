@@ -1,3 +1,19 @@
 packages:
   - "packages/*"
   - "spikes"
+
+# TEMPORARY: markuplint's NodeStore memory-leak fix isn't released yet
+# (https://github.com/markuplint/markuplint/pull/4081). Points at the local
+# build of https://github.com/nagashimam/markuplint/tree/fix/ml-core-nodestore-memory-leak
+# instead of the registry version. Remove once released.
+# @markuplint/ml-core is overridden too since that's where the actual fix
+# lives; overriding markuplint alone would still pull the unfixed ml-core
+# from the registry. @markuplint/rules is overridden as well so that
+# spikes/s2-markuplint/generate-rule-manifest.spike.test.ts (which reads
+# @markuplint/rules directly, not through markuplint) sees the same pinned
+# major version as everything else instead of silently resolving the
+# registry's old major via its own separate devDependency.
+overrides:
+  markuplint: "link:/Users/masato.nagashima/dev/markuplint-fix-ml-core-nodestore-leak/packages/markuplint"
+  "@markuplint/ml-core": "link:/Users/masato.nagashima/dev/markuplint-fix-ml-core-nodestore-leak/packages/@markuplint/ml-core"
+  "@markuplint/rules": "link:/Users/masato.nagashima/dev/markuplint-fix-ml-core-nodestore-leak/packages/@markuplint/rules"

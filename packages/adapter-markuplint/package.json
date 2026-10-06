@@ -28,12 +28,12 @@
     "jsonc": "2.0.0"
   },
   "peerDependencies": {
-    "markuplint": "^4.18.3"
+    "markuplint": "^5.0.1"
   },
   "devDependencies": {
     "@types/node": "26.2.0",
     "@vue-html-bridge/adapter-testkit": "workspace:*",
-    "markuplint": "4.18.3",
+    "markuplint": "5.0.1",
     "vitest": "4.1.11"
   }
 }

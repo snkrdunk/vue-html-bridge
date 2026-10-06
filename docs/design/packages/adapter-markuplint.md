@@ -82,7 +82,7 @@ Adapter metadata:
 
 ## 3. Using the Markuplint API
 
-Markuplint offers a public Node API. We use the ESM Node API, not the CLI process or the JSON formatter. The Phase 0 spike (ADR-0003) confirmed the real entry point against installed `markuplint@4.18.3`: **`MLEngine.fromCode(sourceCode, options)`**, not a constructor plus a separate in-memory-file helper.
+Markuplint offers a public Node API. We use the ESM Node API, not the CLI process or the JSON formatter. The Phase 0 spike (ADR-0003) confirmed the real entry point against installed `markuplint@4.18.3`: **`MLEngine.fromCode(sourceCode, options)`**, not a constructor plus a separate in-memory-file helper. Currently pinned to `markuplint@5.0.1` (ADR-0012); this entry point and the API usage below are unchanged across that upgrade.
 
 ```ts
 import { MLEngine } from "markuplint";
@@ -196,7 +196,7 @@ Use `profileRuleOverrides` to bring back a specific rule that the overlay disabl
 
 Finalizing the first version of the rule manifest is an acceptance criterion for Phase 0; we do not move on to the Phase 1 vertical slice until it is finalized (monorepo.md §14). Which HTML/ARIA/accessibility rules run by default is itself product behavior, so we do not defer it as a mere implementation detail.
 
-**Phase 0 outcome (ADR-0003):** the profile's baseline `extends` target is **`markuplint:recommended-static-html`** — Markuplint's own built-in preset for non-templated static output, which re-enables rules like `character-reference` and `end-tag` that a plain `recommended` preset (aimed at hand-authored documents) does not assume. The rule manifest v1 is committed at `packages/adapter-markuplint/fixtures/rule-manifest.v1.json`: all 38 rules from the pinned Markuplint version, each tagged `keptInGeneratedHtmlProfile` (29 kept / 9 disabled) with a reason, and every kept rule additionally tagged with its `applicability` (`html-semantics` / `source-representation` / `document-context`) matching this section's own examples (`no-use-event-handler-attr` → `source-representation`; ID-reference and landmark/heading rules → `document-context`; everything else → `html-semantics`).
+**Phase 0 outcome (ADR-0003), re-derived for the v5.0.1 pin (ADR-0012):** the profile's baseline `extends` target is **`markuplint:recommended-static-html`** — Markuplint's own built-in preset for non-templated static output, which re-enables rules like `no-malformed-character-reference`/`no-unescaped-char` and `require-end-tag` (split from `character-reference`/`end-tag` by v5's rule-system redesign) that a plain `recommended` preset (aimed at hand-authored documents) does not assume. The rule manifest v1 is committed at `packages/adapter-markuplint/fixtures/rule-manifest.v1.json`: all 107 rules from the pinned Markuplint version, each tagged `keptInGeneratedHtmlProfile` (88 kept / 19 disabled) with a reason, and every kept rule additionally tagged with its `applicability` (`html-semantics` / `source-representation` / `document-context`) matching this section's own examples (`no-event-handler-attr` → `source-representation`; ID/ancestor-reference and landmark/heading rules → `document-context`; everything else → `html-semantics`).
 
 ## 6. Converting violations
 
