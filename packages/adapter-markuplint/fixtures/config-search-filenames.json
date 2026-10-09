@@ -1,5 +1,5 @@
 {
-  "markuplintVersion": "4.18.3",
+  "markuplintVersion": "5.0.1",
   "cosmiconfigModuleName": "markuplint",
   "searchStrategy": "project",
   "searchPlaces": [

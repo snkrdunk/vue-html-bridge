@@ -196,7 +196,7 @@ describe("vertical-slice E2E: monorepo.md §12.2 Phase 2 items", () => {
     // If loggedIn and !loggedIn were independently expanded (no correlation),
     // one of the 4 candidate variants would have BOTH elements present at
     // once (an internally contradictory state), colliding on id="dup" — a
-    // real Markuplint id-duplication violation that can never actually
+    // real Markuplint no-duplicate-id violation that can never actually
     // happen at runtime, since the two conditions are mutually exclusive by
     // construction.
     await didOpen(
@@ -216,7 +216,7 @@ defineProps<{ loggedIn: boolean }>();
     );
     expect(
       published.diagnostics.some(
-        (d: { code?: string }) => d.code === "id-duplication",
+        (d: { code?: string }) => d.code === "no-duplicate-id",
       ),
     ).toBe(false);
   });
@@ -247,7 +247,7 @@ defineProps<{ items: string[] }>();
     );
     expect(
       published.diagnostics.some(
-        (d: { code?: string }) => d.code === "id-duplication",
+        (d: { code?: string }) => d.code === "no-duplicate-id",
       ),
     ).toBe(false);
   });
@@ -277,7 +277,7 @@ defineProps<{ a: boolean }>();
       (params) => params.uri === uri,
     );
     const matches = published.diagnostics.filter(
-      (d: { code?: string }) => d.code === "id-duplication",
+      (d: { code?: string }) => d.code === "no-duplicate-id",
     );
     expect(matches).toHaveLength(1);
   });
@@ -411,7 +411,7 @@ describe("vertical-slice E2E (language-server.md §13.2 items 1-3,6; §13.3)", (
     );
     expect(
       published.diagnostics.some(
-        (d: { code?: string }) => d.code === "id-duplication",
+        (d: { code?: string }) => d.code === "no-duplicate-id",
       ),
     ).toBe(false);
   });
@@ -457,7 +457,7 @@ describe("vertical-slice E2E (language-server.md §13.2 items 1-3,6; §13.3)", (
       (params) => params.uri === uri && params.diagnostics.length > 0,
     );
     const diagnostic = published.diagnostics.find(
-      (d: { code?: string }) => d.code === "id-duplication",
+      (d: { code?: string }) => d.code === "no-duplicate-id",
     );
     expect(diagnostic).toBeDefined();
     // The reported range covers the id value "x\ny" (including the literal
@@ -558,7 +558,7 @@ describe("vertical-slice E2E (language-server.md §13.2 items 1-3,6; §13.3)", (
 const DUPLICATE_ID_TEMPLATE = `<template><div id="x"></div><div id="x"></div></template>`;
 
 function hasIdDuplication(diagnostics: readonly { code?: string }[]): boolean {
-  return diagnostics.some((d) => d.code === "id-duplication");
+  return diagnostics.some((d) => d.code === "no-duplicate-id");
 }
 
 describe("vertical-slice E2E: settings/multi-root/trust/config-watching (language-server.md §9)", () => {
@@ -587,7 +587,7 @@ describe("vertical-slice E2E: settings/multi-root/trust/config-watching (languag
     const root = await tempWorkspace();
     await writeFile(
       join(root, ".markuplintrc"),
-      JSON.stringify({ rules: { "id-duplication": false } }),
+      JSON.stringify({ rules: { "no-duplicate-id": false } }),
     );
     const rootUri = URI.file(root).toString();
 
@@ -612,7 +612,7 @@ describe("vertical-slice E2E: settings/multi-root/trust/config-watching (languag
     const root = await tempWorkspace();
     await writeFile(
       join(root, ".markuplintrc"),
-      JSON.stringify({ rules: { "id-duplication": false } }),
+      JSON.stringify({ rules: { "no-duplicate-id": false } }),
     );
     const rootUri = URI.file(root).toString();
 
@@ -691,7 +691,7 @@ describe("vertical-slice E2E: settings/multi-root/trust/config-watching (languag
     const configPath = join(root, ".markuplintrc");
     await writeFile(
       configPath,
-      JSON.stringify({ rules: { "id-duplication": false } }),
+      JSON.stringify({ rules: { "no-duplicate-id": false } }),
     );
     await client.sendNotification("workspace/didChangeWatchedFiles", {
       changes: [{ uri: URI.file(configPath).toString(), type: 1 }],

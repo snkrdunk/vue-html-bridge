@@ -1,6 +1,7 @@
 # ADR-0003: Markuplint API usage, version pin, and config-search patterns
 
-Status: Accepted
+Status: Accepted (version pin superseded by ADR-0012; API usage and
+config-search findings below remain accurate as of `markuplint@5.0.1`)
 Date: 2026-08-21
 
 ## Context

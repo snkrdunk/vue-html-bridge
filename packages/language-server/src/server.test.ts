@@ -145,7 +145,7 @@ describe("startLanguageServer (language-server.md §4, §6)", () => {
     expect(sentDiagnostics[0]!.version).toBe(1);
     expect(
       (sentDiagnostics[0]!.diagnostics as { code?: string }[]).some(
-        (d) => d.code === "id-duplication",
+        (d) => d.code === "no-duplicate-id",
       ),
     ).toBe(true);
 
@@ -161,7 +161,7 @@ describe("startLanguageServer (language-server.md §4, §6)", () => {
     expect(sentDiagnostics[1]!.version).toBe(2);
     expect(
       (sentDiagnostics[1]!.diagnostics as { code?: string }[]).some(
-        (d) => d.code === "id-duplication",
+        (d) => d.code === "no-duplicate-id",
       ),
     ).toBe(false);
 
@@ -304,7 +304,7 @@ describe("startLanguageServer (language-server.md §4, §6)", () => {
       code?: string;
       range: { start: { line: number; character: number } };
     }[];
-    const idDup = published.find((d) => d.code === "id-duplication")!;
+    const idDup = published.find((d) => d.code === "no-duplicate-id")!;
     expect(idDup).toBeDefined();
 
     const hit = (await (handlers.hover as Handler)({
@@ -312,7 +312,7 @@ describe("startLanguageServer (language-server.md §4, §6)", () => {
       position: idDup.range.start,
     } as never)) as { contents: { value: string } } | null;
     expect(hit).not.toBeNull();
-    expect(hit!.contents.value).toContain("id-duplication");
+    expect(hit!.contents.value).toContain("no-duplicate-id");
 
     const miss = (await (handlers.hover as Handler)({
       textDocument: { uri },

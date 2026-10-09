@@ -109,7 +109,7 @@ describe("S2 criterion 7: config-search filename fixture", () => {
     await mkdir(path.join(root, ".config"), { recursive: true });
     await writeFile(
       path.join(root, ".config", "markuplintrc.json"),
-      JSON.stringify({ rules: { "id-duplication": true } }),
+      JSON.stringify({ rules: { "no-duplicate-id": true } }),
       "utf8",
     );
     const nested = path.join(root, "src", "components");
@@ -126,7 +126,7 @@ describe("S2 criterion 7: config-search filename fixture", () => {
     const result = await engine.exec();
     await engine.close();
 
-    expect(result?.violations.some((v) => v.ruleId === "id-duplication")).toBe(
+    expect(result?.violations.some((v) => v.ruleId === "no-duplicate-id")).toBe(
       true,
     );
   });

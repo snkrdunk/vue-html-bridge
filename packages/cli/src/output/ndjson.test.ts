@@ -25,7 +25,7 @@ function parseAll(lines: readonly string[]): CliNdjsonRecord[] {
 
 const SAMPLE_DIAGNOSTIC: CliDiagnostic = {
   severity: "error",
-  code: "id-duplication",
+  code: "no-duplicate-id",
   message: "Duplicate id.",
   origin: "validator",
   adapterId: "markuplint",
@@ -60,7 +60,7 @@ describe("createNdjsonRenderer (cli.md §7.2)", () => {
       diagnostics: [
         {
           severity: "error",
-          code: "id-duplication",
+          code: "no-duplicate-id",
           message: "Duplicate id.",
           origin: "validator",
           adapterId: "markuplint",

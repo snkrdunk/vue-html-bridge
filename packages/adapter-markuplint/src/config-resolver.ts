@@ -84,9 +84,10 @@ export class ConfigResolver {
    * `configFilePatterns` documents as candidates.
    *
    * This deliberately does NOT go through `MLEngine.resolveConfig()` (as an
-   * earlier version did, via a throwaway engine): `@markuplint/file-resolver`
-   * v4.18.3's *discovery* phase (`ConfigProvider.search()`) always calls its
-   * search helper with `cacheClear` hardcoded to `false`, and that helper
+   * earlier version did, via a throwaway engine): `@markuplint/file-resolver`'s
+   * *discovery* phase (`ConfigProvider.search()`) always calls its
+   * search helper with `cacheClear` hardcoded to `false` (still true as of
+   * v5.0.1, ADR-0012), and that helper
    * holds a single cosmiconfig explorer in a module-level singleton shared
    * by every `MLEngine` instance for the life of the process — verified
    * empirically: even two direct, independent `resolveConfig(false)` calls

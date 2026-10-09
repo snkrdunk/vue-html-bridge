@@ -340,6 +340,7 @@ Normalized source diagnostic:
   origin: "validator",
   adapterId: "markuplint",
   code: "vue-html-bridge/non-finite-attribute-value",
+  severity: "warning",
   message:
     'Cannot narrow this attribute value to a finite set. Use a literal union allowed for aria-pressed (current type: string).',
   sourceRange: { filename: "Toggle.vue", start: 116, end: 123 },
@@ -352,6 +353,11 @@ Normalized source diagnostic:
 ```
 
 This rewrite does not happen unconditionally just because the validator range overlaps a sentinel mapping. It only applies when the diagnostic's primary range lies inside the sentinel value, and the source origin resolves uniquely to that expression. When this cannot be determined, the raw message is kept, and an explanation of the sentinel is added to the hover evidence.
+
+The rewritten diagnostic's severity is never inherited from the wrapped validator rule — that rule's own severity is incidental to this diagnostic's meaning, since it fired against a placeholder, not the real value. Instead it follows the project's severity convention: **Error** for a confirmed violation of an external spec (HTML, WAI-ARIA, ...), **Warning** for a violation of this project's own house rules/conventions, **Info** for anything else surfaced only as information (e.g. for debugging). A sentinel diagnostic can never be Error under this convention, because the real value is by definition unknown — it cannot confirm a spec violation. It resolves to Warning or Info depending on the provenance's `reason`:
+
+- `non-finite-type` (the example above): the bound value's *type* is too broad (e.g. `pressed: string`) to validate. The fix is a convention this project already holds elsewhere — narrow to a literal union instead of a bare `string`/`number` — so this is a house-rule violation: **Warning**.
+- `unresolved-expression`: core's evaluator could not symbolically evaluate the expression at all (e.g. `!item.isSold`), which is ordinary, convention-compliant code — a pure tooling limitation with no actionable violation to report: **Info**.
 
 If multiple validator diagnostics come from the same sentinel, they are combined into one bridge-specific diagnostic, and the original messages are kept as bounded related evidence.
 
