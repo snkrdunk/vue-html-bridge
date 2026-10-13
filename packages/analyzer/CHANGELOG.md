@@ -1,5 +1,12 @@
 # @vue-html-bridge/analyzer
 
+## 0.2.3
+
+### Patch Changes
+
+- 807d379: Fix `approximateGenerateResultBytes` undercounting a cached generation result's size: it now accounts for each variant's `decisions` (previously dropped entirely) and for a mapping entry's nested `provenance`/`sourceRange` payload (previously flattened to a fixed 64-byte guess, ignoring an arbitrarily long `sourceRange.filename`). `maxApproximateBytes` now correctly bounds real cache memory for files with many variants or long paths.
+- eb55ee7: Base the severity of `vue-html-bridge/non-finite-attribute-value` and `vue-html-bridge/unresolved-expression-value` on why the value could not be resolved, instead of inheriting the wrapped validator rule's severity (previously often `error`, even though these diagnostics report an analysis limitation rather than a confirmed markup violation). `non-finite-type` (the bound type is too broad to narrow, e.g. `pressed: string`) is now `warning`; `unresolved-expression` (core's evaluator couldn't evaluate the expression at all, e.g. `!item.isSold`) is now `info`.
+
 ## 0.2.2
 
 ### Patch Changes
