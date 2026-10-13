@@ -105,7 +105,7 @@ Additional CLI-only options (not part of the settings schema):
 | `--emit-html <dir>` | Debug dump (ADR-0011): writes every generated HTML variant, plus a JSON decisions/mapping sidecar, under `<dir>`, reusing the virtual-filename convention (§5.2 of analyzer.md). A relative `<dir>` resolves against `--workspace-root`, matching that flag's own documented role. Opt-in; omitting it leaves default behavior unchanged (no writes, no cache/perf cost) |
 | `--format <text|ndjson>` | Output format (§7). Default `text` |
 | `--fail-on <error|warning|info|hint|never>` | Lowest severity that causes exit code 1. Default `error` |
-| `--verbose` | Include `info` and `hint` diagnostics in output, summary counts, and `--fail-on` evaluation. Without it, only `error` and `warning` diagnostics are visible |
+| `--verbose` | Include `info` and `hint` diagnostics in output, summary counts, and `--fail-on` evaluation. It also writes the workspace-relative filename to stderr immediately before generating that file's variants. Without it, only `error` and `warning` diagnostics are visible |
 | `--untrusted` | Run with the restricted trust behavior (§5) |
 | `--help`, `--version` | Print and exit 0 |
 | `--no-color` | Disable color. Color is used only when stdout is a TTY and the `NO_COLOR` environment variable is unset |

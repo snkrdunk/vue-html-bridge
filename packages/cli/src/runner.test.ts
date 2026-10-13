@@ -7,6 +7,7 @@
 // packages/language-server/src/e2e.test.ts.
 import {
   chmod,
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -408,6 +409,53 @@ describe("runCli: --fail-on threshold interactions (cli.md §8, §9 item 10)", (
       expect(visible.renderer.files[0]!.diagnostics).toHaveLength(1);
     },
   );
+});
+
+describe("runCli: verbose variant-generation progress", () => {
+  it("writes the workspace-relative filename to stderr immediately before analysis", async () => {
+    const root = await tempWorkspace();
+    await mkdir(join(root, "src"));
+    await writeFile(
+      join(root, "src", "Widget.vue"),
+      "<template><div /></template>",
+    );
+    const notices: string[] = [];
+
+    await runCli({
+      workspaceRoot: root,
+      cwd: root,
+      positionalArgs: [],
+      settings: baseSettings({ validators: [] }),
+      workspaceTrusted: true,
+      failOn: "error",
+      verbose: true,
+      signal: new AbortController().signal,
+      renderer: recordingRenderer(),
+      notice: (message) => notices.push(message),
+    });
+
+    expect(notices).toEqual(['Generating variants for "src/Widget.vue"...\n']);
+  });
+
+  it("does not emit variant-generation progress without --verbose", async () => {
+    const root = await tempWorkspace();
+    await writeFile(join(root, "Widget.vue"), "<template><div /></template>");
+    const notices: string[] = [];
+
+    await runCli({
+      workspaceRoot: root,
+      cwd: root,
+      positionalArgs: [],
+      settings: baseSettings({ validators: [] }),
+      workspaceTrusted: true,
+      failOn: "error",
+      signal: new AbortController().signal,
+      renderer: recordingRenderer(),
+      notice: (message) => notices.push(message),
+    });
+
+    expect(notices).toEqual([]);
+  });
 });
 
 describe("runCli: enumeration boundary violations and empty results (cli.md §6, §8)", () => {

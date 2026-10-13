@@ -378,9 +378,60 @@ describe("createWorkspaceAnalyzer (analyzer.md §12, Phase 1 subset)", () => {
     );
     expect(diagnostic).toBeDefined();
     expect(diagnostic!.origin).toBe("validator");
+    // Fixed at "warning" regardless of the wrapped rule's own severity (here
+    // "error"): a too-broad type is a house-rule violation (narrow to a
+    // literal union), not a confirmed markup violation of the placeholder.
+    expect(diagnostic!.severity).toBe("warning");
     expect(diagnostic!.evidence.originalValidatorMessages).toEqual([
       'The value of "aria-pressed" must be "true", "false", or "mixed".',
     ]);
+  });
+
+  it("5b: rewrites an unresolved-expression sentinel diagnostic as info regardless of the wrapped rule's severity", async () => {
+    const fake = createFakeAdapter({
+      id: "fake",
+      handler: (request) => {
+        const index = request.html.indexOf("dummy-string");
+        return {
+          diagnostics: [
+            {
+              ruleId: "class-naming",
+              severity: "warning",
+              message: '"dummy-string" is not a valid class name.',
+              range: { start: index, end: index + "dummy-string".length },
+            },
+          ],
+          failures: [],
+        };
+      },
+    });
+    const analyzer = await createWorkspaceAnalyzer({
+      workspaceRoot: "/workspace",
+      adapters: [{ adapter: fake.adapter, settings: {}, enabled: true }],
+    });
+    const result = await analyzer.analyze({
+      uri: "file:///workspace/Cart.vue",
+      filename: "/workspace/Cart.vue",
+      source: `<script setup lang="ts">
+type Item = { id: string; isSold: boolean };
+defineProps<{ items: Item[] }>();
+</script>
+<template>
+  <div v-for="item in items" :key="item.id" :class="{ 'can-edit': !item.isSold }">{{ item.id }}</div>
+</template>`,
+      signal: new AbortController().signal,
+    });
+    await analyzer.dispose();
+    const diagnostic = result.diagnostics.find(
+      (d) => d.code === "vue-html-bridge/unresolved-expression-value",
+    );
+    expect(diagnostic).toBeDefined();
+    expect(diagnostic!.origin).toBe("validator");
+    // Fixed at "info" regardless of the wrapped rule's own severity (here
+    // "warning"): `!item.isSold` is ordinary, convention-compliant code —
+    // core just couldn't symbolically evaluate it — so this is a pure
+    // tooling limitation, not a house-rule or spec violation.
+    expect(diagnostic!.severity).toBe("info");
   });
 
   it("6: the same rule at different positions within one variant becomes separate occurrences", async () => {

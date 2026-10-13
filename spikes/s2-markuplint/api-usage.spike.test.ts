@@ -60,9 +60,12 @@ describe("S2 criterion 1: in-memory validation, no filesystem write", () => {
     expect(result?.filePath).toBe(virtualName);
     const { access } = await import("node:fs/promises");
     await expect(access(virtualName)).rejects.toThrow();
-    // aria-pressed="dummy-string" is not a valid ARIA state token -> the wai-aria rule
-    // fires, proving the virtual file was actually parsed and linted, not silently skipped.
-    expect(result?.violations.some((v) => v.ruleId === "wai-aria")).toBe(true);
+    // aria-pressed="dummy-string" is not a valid ARIA state token -> no-invalid-aria-prop-value
+    // (split from wai-aria in v5) fires, proving the virtual file was actually parsed and
+    // linted, not silently skipped.
+    expect(
+      result?.violations.some((v) => v.ruleId === "no-invalid-aria-prop-value"),
+    ).toBe(true);
   });
 });
 
@@ -73,8 +76,8 @@ describe("S2 criterion 2: extends / plugins / rules / nodeRules resolve from an 
       "def456",
     );
     // Two violations expected:
-    // - id-duplication (top-level `rules`, explicitly turned on by our config)
-    // - required-attr (nodeRule: img must have alt)
+    // - no-duplicate-id (top-level `rules`, explicitly turned on by our config)
+    // - require-attr (nodeRule: img must have alt)
     const engine = await MLEngine.fromCode(
       '<img id="x" src="a.png"><img id="x" src="b.png">',
       { name: virtualName, configFile, noSearchConfig: true },
@@ -83,13 +86,14 @@ describe("S2 criterion 2: extends / plugins / rules / nodeRules resolve from an 
     await engine.close();
 
     const ruleIds = (result?.violations ?? []).map((v) => v.ruleId);
-    expect(ruleIds).toContain("id-duplication");
-    expect(ruleIds).toContain("required-attr");
-    // `extends: markuplint:recommended-static-html` pulls in `character-reference`
-    // and `end-tag` on top of the (empty) code-styles preset — confirm the extend
-    // chain actually resolved by checking a rule that only recommended-static-html
-    // (not our explicit `rules` block) turns on: end-tag requires explicit closing
-    // tags for non-void elements.
+    expect(ruleIds).toContain("no-duplicate-id");
+    expect(ruleIds).toContain("require-attr");
+    // `extends: markuplint:recommended-static-html` pulls in
+    // `no-malformed-character-reference`/`no-unescaped-char` and `require-end-tag`
+    // (split from character-reference/end-tag in v5) on top of the (empty)
+    // code-styles preset — confirm the extend chain actually resolved by checking a
+    // rule that only recommended-static-html (not our explicit `rules` block) turns
+    // on: require-end-tag requires explicit closing tags for non-void elements.
     const engine2 = await MLEngine.fromCode("<div>", {
       name: virtualFilename("/workspace/src/components/Gallery.vue", "ghi789"),
       configFile,
@@ -97,7 +101,9 @@ describe("S2 criterion 2: extends / plugins / rules / nodeRules resolve from an 
     });
     const result2 = await engine2.exec();
     await engine2.close();
-    expect(result2?.violations.some((v) => v.ruleId === "end-tag")).toBe(true);
+    expect(
+      result2?.violations.some((v) => v.ruleId === "require-end-tag"),
+    ).toBe(true);
   });
 });
 
@@ -134,14 +140,17 @@ describe("S2 criterion 5: engine/config reuse and concurrency safety", () => {
       noSearchConfig: true,
     });
     const first = await engine.exec();
-    expect(first?.violations.some((v) => v.ruleId === "required-attr")).toBe(
+    expect(first?.violations.some((v) => v.ruleId === "require-attr")).toBe(
       true,
     );
 
     // setCode() re-parses without re-resolving config (see ml-engine.js `setCode`).
-    await engine.setCode('<img src="a.png" alt="a cat">');
+    // width/height are also required here: markuplint:recommended-static-html's
+    // extend chain includes markuplint:performance (v5), whose img-aspect-ratio
+    // nodeRule requires them via the same require-attr rule as alt.
+    await engine.setCode('<img src="a.png" alt="a cat" width="1" height="1">');
     const second = await engine.exec();
-    expect(second?.violations.some((v) => v.ruleId === "required-attr")).toBe(
+    expect(second?.violations.some((v) => v.ruleId === "require-attr")).toBe(
       false,
     );
     await engine.close();
@@ -149,7 +158,10 @@ describe("S2 criterion 5: engine/config reuse and concurrency safety", () => {
 
   it("runs concurrent validations against independent MLEngine instances safely (no cross-talk)", async () => {
     const inputs = Array.from({ length: 8 }, (_, i) => ({
-      html: i % 2 === 0 ? '<img src="a.png">' : '<img src="a.png" alt="ok">',
+      html:
+        i % 2 === 0
+          ? '<img src="a.png">'
+          : '<img src="a.png" alt="ok" width="1" height="1">',
       name: virtualFilename(
         `/workspace/src/components/Concurrent${i}.vue`,
         `c${i}`,
@@ -172,7 +184,7 @@ describe("S2 criterion 5: engine/config reuse and concurrency safety", () => {
     for (const [i, { name, result }] of results.entries()) {
       expect(result?.filePath).toBe(name); // no identity cross-talk between concurrent engines
       const hasRequiredAttr = result?.violations.some(
-        (v) => v.ruleId === "required-attr",
+        (v) => v.ruleId === "require-attr",
       );
       expect(hasRequiredAttr).toBe(i % 2 === 0);
     }

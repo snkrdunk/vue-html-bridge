@@ -6,7 +6,16 @@
 // on SHA-256 being collision-resistant, not an oversight.
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import type { GenerateOptions, GenerateResult } from "vue-html-bridge";
+import type {
+  DecisionAssignment,
+  GenerateOptions,
+  GenerateResult,
+  GeneratedValueProvenance,
+  HtmlVariant,
+  JsonValue,
+  MappingEntry,
+  SourceRange,
+} from "vue-html-bridge";
 import { normalizeFilenameForCacheKey } from "./filename-key.js";
 import { BoundedLruCache, type BoundedCacheOptions } from "./lru.js";
 
@@ -72,14 +81,96 @@ function hashContent(source: string): string {
   return createHash("sha256").update(source, "utf8").digest("hex");
 }
 
+/** A generic small-object's V8 overhead — the same rough unit the original
+ * estimate already used for a `MappingEntry` (`* 64`); reused here for every
+ * nested object so a file with many variants can't hide real heap behind an
+ * uncounted field. */
+const OBJECT_OVERHEAD_BYTES = 64;
+
+/**
+ * `html`/`diagnostics` were already counted; `decisions` and `map` scale
+ * with variant count exactly like `html` does but were previously left out
+ * (`decisions`) or flattened to a fixed guess that ignored their nested
+ * `provenance`/`sourceRange` payload (`map`). Undercounting either lets a
+ * file with a very large variant count retain far more real heap than
+ * `maxApproximateBytes` intends — the LRU's count cap alone won't evict it
+ * until hundreds of *other* files have since been analyzed.
+ */
 export function approximateGenerateResultBytes(result: GenerateResult): number {
   let total = 0;
   for (const variant of result.variants) {
-    total += variant.html.length;
-    total += variant.map.length * 64;
+    total += approximateVariantBytes(variant);
   }
   total += result.diagnostics.length * 128;
   return total;
+}
+
+function approximateVariantBytes(variant: HtmlVariant): number {
+  let total = variant.html.length + OBJECT_OVERHEAD_BYTES;
+  for (const decision of variant.decisions) {
+    total += approximateDecisionBytes(decision);
+  }
+  for (const entry of variant.map) {
+    total += approximateMappingEntryBytes(entry);
+  }
+  return total;
+}
+
+function approximateDecisionBytes(decision: DecisionAssignment): number {
+  return (
+    OBJECT_OVERHEAD_BYTES +
+    decision.decisionId.length +
+    decision.displayName.length +
+    approximateJsonValueBytes(decision.value)
+  );
+}
+
+function approximateJsonValueBytes(value: JsonValue): number {
+  if (typeof value === "string") return value.length + OBJECT_OVERHEAD_BYTES;
+  if (typeof value !== "object" || value === null) {
+    return OBJECT_OVERHEAD_BYTES;
+  }
+  if (Array.isArray(value)) {
+    return value.reduce(
+      (sum, item) => sum + approximateJsonValueBytes(item),
+      OBJECT_OVERHEAD_BYTES,
+    );
+  }
+  return Object.entries(value).reduce(
+    (sum, [key, item]) => sum + key.length + approximateJsonValueBytes(item),
+    OBJECT_OVERHEAD_BYTES,
+  );
+}
+
+function approximateMappingEntryBytes(entry: MappingEntry): number {
+  return (
+    OBJECT_OVERHEAD_BYTES + // generated range + kind
+    approximateSourceRangeBytes(entry.source) +
+    approximateProvenanceBytes(entry.provenance)
+  );
+}
+
+function approximateSourceRangeBytes(range: SourceRange): number {
+  return range.filename.length + OBJECT_OVERHEAD_BYTES;
+}
+
+function approximateProvenanceBytes(
+  provenance: GeneratedValueProvenance,
+): number {
+  const base =
+    OBJECT_OVERHEAD_BYTES + approximateSourceRangeBytes(provenance.sourceRange);
+  switch (provenance.kind) {
+    case "finite-domain":
+      return base + provenance.decisionId.length;
+    case "synthetic":
+      return base + provenance.transformation.length;
+    case "sentinel":
+      return (
+        base + provenance.reason.length + (provenance.originalType?.length ?? 0)
+      );
+    case "source-literal":
+      return base;
+  }
 }
 
 export function createGenerationCache(

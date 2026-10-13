@@ -53,7 +53,7 @@ const contractFixture: AdapterContractFixture<MarkuplintAdapterSettings> = {
   validHtml: "<p>Hello</p>",
   invalidHtml: {
     html: '<img src="a.png">',
-    expectedRuleId: "required-attr",
+    expectedRuleId: "require-attr",
     expectedSubstring: "img",
   },
   createFailureSettings: () => ({ configFile: "does-not-exist.json" }),
@@ -65,11 +65,11 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
     const root = await tempWorkspace();
     await writeFile(
       join(root, "auto.json"),
-      JSON.stringify({ rules: { "id-duplication": false } }),
+      JSON.stringify({ rules: { "no-duplicate-id": false } }),
     );
     await writeFile(
       join(root, "explicit.json"),
-      JSON.stringify({ rules: { "id-duplication": true } }),
+      JSON.stringify({ rules: { "no-duplicate-id": true } }),
     );
     // An auto-discoverable config sits at the workspace root; it should be
     // ignored because settings.configFile is explicit.
@@ -83,7 +83,7 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
       new AbortController().signal,
     );
     await session.dispose();
-    expect(result.diagnostics.some((d) => d.ruleId === "id-duplication")).toBe(
+    expect(result.diagnostics.some((d) => d.ruleId === "no-duplicate-id")).toBe(
       true,
     );
   });
@@ -120,10 +120,10 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
         extends: ["markuplint:recommended-static-html"],
         plugins: [pluginPath],
         rules: {
-          "id-duplication": true,
+          "no-duplicate-id": true,
           "vhb-test-plugin/always-fire": true,
         },
-        nodeRules: [{ selector: "img", rules: { "required-attr": ["alt"] } }],
+        nodeRules: [{ selector: "img", rules: { "require-attr": ["alt"] } }],
       }),
     );
 
@@ -138,18 +138,18 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
         new AbortController().signal,
       );
       const ruleIds = result.diagnostics.map((d) => d.ruleId);
-      expect(ruleIds).toContain("id-duplication"); // top-level `rules`
-      expect(ruleIds).toContain("required-attr"); // `nodeRules`: img requires alt
+      expect(ruleIds).toContain("no-duplicate-id"); // top-level `rules`
+      expect(ruleIds).toContain("require-attr"); // `nodeRules`: img requires alt
       expect(ruleIds).toContain("vhb-test-plugin/always-fire"); // `plugins`
 
-      // `extends: markuplint:recommended-static-html` pulls in `end-tag` on
+      // `extends: markuplint:recommended-static-html` pulls in `require-end-tag` on
       // top of this config's own (unrelated) rules block.
       const extendsResult = await session.validate(
         request(root, "<div>"),
         new AbortController().signal,
       );
       expect(
-        extendsResult.diagnostics.some((d) => d.ruleId === "end-tag"),
+        extendsResult.diagnostics.some((d) => d.ruleId === "require-end-tag"),
       ).toBe(true);
     } finally {
       await session.dispose();
@@ -160,7 +160,7 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
     const root = await tempWorkspace();
     await writeFile(
       join(root, ".markuplintrc.json"),
-      JSON.stringify({ rules: { "id-duplication": true } }),
+      JSON.stringify({ rules: { "no-duplicate-id": true } }),
     );
     const session = await markuplintAdapter.createSession({
       workspaceRoot: root,
@@ -185,7 +185,9 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
         new AbortController().signal,
       );
       expect(
-        userConfigResult.diagnostics.some((d) => d.ruleId === "id-duplication"),
+        userConfigResult.diagnostics.some(
+          (d) => d.ruleId === "no-duplicate-id",
+        ),
       ).toBe(true);
 
       // markuplint:recommended-static-html (the overlay's own baseline) still
@@ -197,7 +199,7 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
         new AbortController().signal,
       );
       const endTagViolation = baselineResult.diagnostics.find(
-        (d) => d.ruleId === "end-tag",
+        (d) => d.ruleId === "require-end-tag",
       );
       expect(endTagViolation).toBeDefined();
       expect(endTagViolation?.range).toBeDefined();
@@ -331,15 +333,15 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
     );
     await session.dispose();
     expect(first.diagnostics.length).toBeGreaterThanOrEqual(2);
-    expect(first.diagnostics.some((d) => d.ruleId === "id-duplication")).toBe(
+    expect(first.diagnostics.some((d) => d.ruleId === "no-duplicate-id")).toBe(
       true,
     );
-    expect(first.diagnostics.some((d) => d.ruleId === "required-attr")).toBe(
+    expect(first.diagnostics.some((d) => d.ruleId === "require-attr")).toBe(
       true,
     );
     expect(first.diagnostics).toEqual(second.diagnostics);
     const violation = first.diagnostics.find(
-      (d) => d.ruleId === "required-attr",
+      (d) => d.ruleId === "require-attr",
     );
     expect(violation?.range).toBeDefined();
     expect(
@@ -347,7 +349,7 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
     ).toContain("img");
   });
 
-  it("5: an ARIA violation (wai-aria) is reported with a range over the invalid value", async () => {
+  it("5: an ARIA violation (no-invalid-aria-prop-value, split from wai-aria in v5) is reported with a range over the invalid value", async () => {
     const root = await tempWorkspace();
     const session = await markuplintAdapter.createSession({
       workspaceRoot: root,
@@ -360,7 +362,9 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
       new AbortController().signal,
     );
     await session.dispose();
-    const violation = result.diagnostics.find((d) => d.ruleId === "wai-aria");
+    const violation = result.diagnostics.find(
+      (d) => d.ruleId === "no-invalid-aria-prop-value",
+    );
     expect(violation).toBeDefined();
     expect(violation?.applicability).toBe("html-semantics");
     expect(violation?.range).toBeDefined();
@@ -383,7 +387,7 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
         new AbortController().signal,
       );
       const crlfViolation = crlfResult.diagnostics.find(
-        (d) => d.ruleId === "required-attr",
+        (d) => d.ruleId === "require-attr",
       );
       expect(crlfViolation?.range).toBeDefined();
       expect(
@@ -398,7 +402,7 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
         new AbortController().signal,
       );
       const combiningViolation = combiningResult.diagnostics.find(
-        (d) => d.ruleId === "required-attr",
+        (d) => d.ruleId === "require-attr",
       );
       expect(combiningViolation?.range).toBeDefined();
       expect(
@@ -577,7 +581,7 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
     const configPath = join(root, ".markuplintrc.json");
     await writeFile(
       configPath,
-      JSON.stringify({ rules: { "id-duplication": true } }),
+      JSON.stringify({ rules: { "no-duplicate-id": true } }),
     );
     const html = '<div id="x"></div><div id="x"></div>';
 
@@ -590,9 +594,9 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
       request(root, html),
       new AbortController().signal,
     );
-    expect(resultA.diagnostics.some((d) => d.ruleId === "id-duplication")).toBe(
-      true,
-    );
+    expect(
+      resultA.diagnostics.some((d) => d.ruleId === "no-duplicate-id"),
+    ).toBe(true);
     await sessionA.dispose();
 
     // The language server's reaction to a watched config change is exactly
@@ -600,7 +604,7 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
     // (adapter-markuplint.md §4.3: `reconfigure({ invalidateAdapters: [...] })`).
     await writeFile(
       configPath,
-      JSON.stringify({ rules: { "id-duplication": false } }),
+      JSON.stringify({ rules: { "no-duplicate-id": false } }),
     );
     const sessionB = await markuplintAdapter.createSession({
       workspaceRoot: root,
@@ -612,9 +616,9 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
       new AbortController().signal,
     );
     await sessionB.dispose();
-    expect(resultB.diagnostics.some((d) => d.ruleId === "id-duplication")).toBe(
-      false,
-    );
+    expect(
+      resultB.diagnostics.some((d) => d.ruleId === "no-duplicate-id"),
+    ).toBe(false);
   });
 
   it("12c: auto-search discovers a config created after the first session found nothing there (reconfigure)", async () => {
@@ -633,15 +637,15 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
       new AbortController().signal,
     );
     await sessionA.dispose();
-    expect(resultA.diagnostics.some((d) => d.ruleId === "id-duplication")).toBe(
-      true,
-    );
+    expect(
+      resultA.diagnostics.some((d) => d.ruleId === "no-duplicate-id"),
+    ).toBe(true);
 
     // The language server's reaction to a watched config-file *creation* is
     // the same session dispose+recreate as 12b (adapter-markuplint.md §4.3).
     await writeFile(
       join(root, ".markuplintrc"),
-      JSON.stringify({ rules: { "id-duplication": false } }),
+      JSON.stringify({ rules: { "no-duplicate-id": false } }),
     );
     const sessionB = await markuplintAdapter.createSession({
       workspaceRoot: root,
@@ -653,9 +657,9 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
       new AbortController().signal,
     );
     await sessionB.dispose();
-    expect(resultB.diagnostics.some((d) => d.ruleId === "id-duplication")).toBe(
-      false,
-    );
+    expect(
+      resultB.diagnostics.some((d) => d.ruleId === "no-duplicate-id"),
+    ).toBe(false);
   });
 
   it("13: detects an incompatible Markuplint API shape and reports validator-unavailable", async () => {
@@ -712,11 +716,11 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
     await mkdir(b, { recursive: true });
     await writeFile(
       join(a, ".markuplintrc.json"),
-      JSON.stringify({ rules: { doctype: true } }),
+      JSON.stringify({ rules: { "require-doctype": true } }),
     );
     await writeFile(
       join(b, ".markuplintrc.json"),
-      JSON.stringify({ rules: { doctype: false } }),
+      JSON.stringify({ rules: { "require-doctype": false } }),
     );
     const session = await markuplintAdapter.createSession({
       workspaceRoot: root,
@@ -732,8 +736,12 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
       new AbortController().signal,
     );
     await session.dispose();
-    expect(resultA.diagnostics.some((d) => d.ruleId === "doctype")).toBe(true);
-    expect(resultB.diagnostics.some((d) => d.ruleId === "doctype")).toBe(false);
+    expect(
+      resultA.diagnostics.some((d) => d.ruleId === "require-doctype"),
+    ).toBe(true);
+    expect(
+      resultB.diagnostics.some((d) => d.ruleId === "require-doctype"),
+    ).toBe(false);
   });
 
   it("15: getConfigWatchTargets() includes discovered configs and their extends dependencies, and expands deterministically across directories", async () => {
@@ -744,11 +752,17 @@ describe("adapter-markuplint: Markuplint-specific fixtures (adapter-markuplint.m
     await mkdir(b, { recursive: true });
 
     const basePath = join(a, "base.json");
-    await writeFile(basePath, JSON.stringify({ rules: { doctype: false } }));
+    await writeFile(
+      basePath,
+      JSON.stringify({ rules: { "require-doctype": false } }),
+    );
     const configAPath = join(a, ".markuplintrc.json");
     await writeFile(configAPath, JSON.stringify({ extends: ["./base.json"] }));
     const configBPath = join(b, ".markuplintrc.json");
-    await writeFile(configBPath, JSON.stringify({ rules: { doctype: false } }));
+    await writeFile(
+      configBPath,
+      JSON.stringify({ rules: { "require-doctype": false } }),
+    );
 
     const session = await markuplintAdapter.createSession({
       workspaceRoot: root,

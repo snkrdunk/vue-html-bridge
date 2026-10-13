@@ -5,25 +5,25 @@
     "\\.vue$": "@markuplint/vue-parser"
   },
   "rules": {
-    "id-duplication": true
+    "no-duplicate-id": true
   },
   "nodeRules": [
     {
       "selector": "img",
       "rules": {
-        "required-attr": ["alt"]
+        "require-attr": ["alt"]
       }
     }
   ],
   "overrides": {
     "**/*.__vue_html_bridge__/**/*.html": {
       "rules": {
-        "doctype": false
+        "require-doctype": false
       }
     },
     "**/*.vue": {
       "rules": {
-        "doctype": true
+        "require-doctype": true
       }
     }
   },

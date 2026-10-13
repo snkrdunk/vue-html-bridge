@@ -1,10 +1,16 @@
 [
   {
-    "ruleId": "attr-duplication",
-    "category": "validation",
+    "ruleId": "aria-prop-requires-role",
+    "category": "a11y",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
-    "reason": "Content-model validity, independent of authoring style."
+    "reason": "ARIA attribute-value/role validity, fragment-local (global aria-* prop requiring a role); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "attr-order",
+    "category": "style",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Source-formatting-only (attribute ordering convention), not generated-fragment validity."
   },
   {
     "ruleId": "attr-value-quotes",
@@ -25,79 +31,58 @@
     "reason": "Source-formatting-only (tag-name casing convention); core.md §6.2 already preserves real casing during serialization."
   },
   {
-    "ruleId": "character-reference",
-    "category": "style",
-    "keptInGeneratedHtmlProfile": true,
-    "applicability": "html-semantics",
-    "reason": "markuplint:recommended-static-html re-enables this over the (empty) code-styles preset for genuinely static output; keep for the same reason."
-  },
-  {
     "ruleId": "class-naming",
-    "category": "naming-convention",
+    "category": "style",
     "keptInGeneratedHtmlProfile": false,
     "reason": "Enforces a project's authoring naming convention (e.g. BEM), not generated-HTML validity; opt in via profileRuleOverrides if desired."
   },
   {
-    "ruleId": "deprecated-attr",
-    "category": "validation",
+    "ruleId": "consistent-table-row-length",
+    "category": "structure",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
-    "reason": "Content-model/spec validity."
+    "reason": "A11y content-model, fragment-local. Split from table-row-column-alignment (v5 rule-system redesign)."
   },
   {
-    "ruleId": "deprecated-element",
-    "category": "validation",
+    "ruleId": "element-supports-aria-prop",
+    "category": "a11y",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
-    "reason": "Content-model/spec validity."
+    "reason": "ARIA attribute-value/role validity, fragment-local (aria-* prop support per element); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
   },
   {
-    "ruleId": "disallowed-element",
-    "category": "validation",
-    "keptInGeneratedHtmlProfile": true,
-    "applicability": "html-semantics",
-    "reason": "Content-model validity."
-  },
-  {
-    "ruleId": "doctype",
-    "category": "validation",
-    "keptInGeneratedHtmlProfile": false,
-    "reason": "Document-root-only: a component fragment is never a full document (monorepo.md §6.5)."
-  },
-  {
-    "ruleId": "end-tag",
-    "category": "style",
-    "keptInGeneratedHtmlProfile": true,
-    "applicability": "html-semantics",
-    "reason": "markuplint:recommended-static-html re-enables this; matches core.md §6.2's guarantee that non-void elements always get an explicit end tag."
-  },
-  {
-    "ruleId": "heading-levels",
-    "category": "validation",
+    "ruleId": "form-attr-references-form",
+    "category": "references",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "document-context",
-    "reason": "Whether heading nesting is sequential depends on where the fragment is inserted into a parent document (monorepo.md §6.5)."
+    "reason": "May reference a form element outside the current fragment, like no-refer-to-non-existent-id."
   },
   {
-    "ruleId": "id-duplication",
-    "category": "validation",
-    "keptInGeneratedHtmlProfile": true,
-    "applicability": "html-semantics",
-    "reason": "Core to the feature: v-for's 2-item exemplar (core.md §4.5) exists specifically to surface duplicate static ids within one generated fragment."
+    "ruleId": "head-element-order",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Document-root-only: a fragment is never a full document with its own <head> (monorepo.md §6.5)."
   },
   {
-    "ruleId": "ineffective-attr",
-    "category": "style",
+    "ruleId": "input-list-references-datalist",
+    "category": "references",
     "keptInGeneratedHtmlProfile": true,
-    "applicability": "html-semantics",
-    "reason": "Despite category:style, this flags an attribute placed on an element type where it has no effect — a content-model concern, not formatting."
+    "applicability": "document-context",
+    "reason": "May reference a datalist element outside the current fragment, like no-refer-to-non-existent-id."
   },
   {
-    "ruleId": "invalid-attr",
-    "category": "validation",
+    "ruleId": "itemprop-requires-itemscope",
+    "category": "attributes",
     "keptInGeneratedHtmlProfile": true,
-    "applicability": "html-semantics",
-    "reason": "Attribute-value validity, the rule adapter-markuplint.md §5.4's example (aria-pressed) is built around."
+    "applicability": "document-context",
+    "reason": "Whether itemprop has a containing itemscope may depend on where the fragment is inserted into a parent document."
+  },
+  {
+    "ruleId": "label-for-references-labelable",
+    "category": "references",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "document-context",
+    "reason": "May reference a labelable control outside the current fragment, like no-refer-to-non-existent-id."
   },
   {
     "ruleId": "label-has-control",
@@ -107,31 +92,93 @@
     "reason": "A11y content-model, fragment-local."
   },
   {
-    "ruleId": "landmark-roles",
-    "category": "a11y",
+    "ruleId": "label-no-multiple-controls",
+    "category": "forms",
     "keptInGeneratedHtmlProfile": true,
-    "applicability": "document-context",
-    "reason": "Landmark uniqueness/nesting correctness depends on the rest of the page the fragment is placed into."
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local (like label-has-control)."
   },
   {
-    "ruleId": "neighbor-popovers",
+    "ruleId": "link-types",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Attribute-value validity, fragment-local."
+  },
+  {
+    "ruleId": "map-id-name-match",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, fragment-local — checks the element's own id/name attributes, not an external reference."
+  },
+  {
+    "ruleId": "meta-charset-position",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Document-root-only: a byte-offset-within-the-document check has no meaning for a fragment (monorepo.md §6.5)."
+  },
+  {
+    "ruleId": "meter-value-bounds",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Attribute-value validity, fragment-local."
+  },
+  {
+    "ruleId": "no-abstract-role",
     "category": "a11y",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
-    "reason": "A11y content-model, fragment-local."
+    "reason": "ARIA attribute-value/role validity, fragment-local (abstract-role usage); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-always-matching-source",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, fragment-local — checks sibling source elements within the same picture."
   },
   {
     "ruleId": "no-ambiguous-navigable-target-names",
-    "category": "a11y",
+    "category": "attributes",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
     "reason": "A11y content-model, fragment-local."
+  },
+  {
+    "ruleId": "no-aria-hidden-on-hidden-until-found",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y attribute-value validity, fragment-local."
+  },
+  {
+    "ruleId": "no-aria-on-presentational-children",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (aria-* on presentational children); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-aria-on-unsupported-element",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (role support per element); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
   },
   {
     "ruleId": "no-boolean-attr-value",
     "category": "style",
     "keptInGeneratedHtmlProfile": false,
     "reason": "Source-formatting preference (e.g. disabled=\"disabled\" vs. disabled); core.md §6.2 already always emits the bare boolean-attribute form, so this never fires against bridge output either way."
+  },
+  {
+    "ruleId": "no-broken-fragment-link",
+    "category": "references",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "document-context",
+    "reason": "href=\"#id\" may reference an id outside the current fragment, like no-refer-to-non-existent-id."
   },
   {
     "ruleId": "no-consecutive-br",
@@ -141,65 +188,408 @@
     "reason": "A11y content-model, fragment-local."
   },
   {
+    "ruleId": "no-content-after-body",
+    "category": "syntax",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Document-root-only: a fragment never has its own <body> end tag to follow (monorepo.md §6.5)."
+  },
+  {
+    "ruleId": "no-contradictory-aria-prop",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (contradictory aria-* prop combination); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-default-aria-value",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (aria-* prop matching its default value); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
     "ruleId": "no-default-value",
     "category": "style",
     "keptInGeneratedHtmlProfile": false,
     "reason": "Source-formatting preference (omitting an attribute equal to its default), not a generated-HTML validity concern."
   },
   {
+    "ruleId": "no-deprecated-aria-prop",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (deprecated aria-* prop usage); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-deprecated-attr",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model/spec validity. Split from deprecated-attr (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-deprecated-element",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model/spec validity. Split from deprecated-element (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-deprecated-role",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (deprecated role usage); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-disallowed-ancestor",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity; fires only when both the element and its disallowed ancestor are present within the fragment — a strict subset of real violations, but never a false positive."
+  },
+  {
+    "ruleId": "no-disallowed-attr",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Attribute-eligibility validity (name known but disallowed on this element/condition). Split from invalid-attr (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-duplicate-attr",
+    "category": "syntax",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, independent of authoring style. Renamed from attr-duplication (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-duplicate-autofocus",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, fragment-local (like no-duplicate-dt/no-duplicate-id)."
+  },
+  {
     "ruleId": "no-duplicate-dt",
-    "category": "validation",
+    "category": "structure",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
     "reason": "Content-model validity, fragment-local."
+  },
+  {
+    "ruleId": "no-duplicate-h1",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, fragment-local — unlike require-h1's missing-h1 half, a fragment containing 2+ real h1 elements is a genuine violation regardless of document placement. Split from required-h1 (v5 rule-system redesign; the duplicate-h1 half)."
+  },
+  {
+    "ruleId": "no-duplicate-id",
+    "category": "references",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Core to the feature: v-for's 2-item exemplar (core.md §4.5) exists specifically to surface duplicate static ids within one generated fragment. Renamed from id-duplication (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-duplicate-sibling-attr",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, fragment-local — checks sibling elements within the same parent."
+  },
+  {
+    "ruleId": "no-duplicate-visible-main",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local (like no-duplicate-dt/no-duplicate-id)."
   },
   {
     "ruleId": "no-empty-palpable-content",
-    "category": "validation",
+    "category": "structure",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
     "reason": "Content-model validity, fragment-local."
   },
   {
-    "ruleId": "no-hard-code-id",
+    "ruleId": "no-empty-table-track",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local. Split from table-row-column-alignment (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-event-handler-attr",
+    "category": "maintainability",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "source-representation",
+    "reason": "adapter-markuplint.md §5's own example: a Vue @click synthesized into onclick=\"dummy-fn\" (core.md §5.3) is indistinguishable from a real source onclick by looking at the HTML string alone; the analyzer suppresses this using core's synthetic provenance (core.md §5.4), not the adapter. Renamed from no-use-event-handler-attr (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-experimental-features",
+    "category": "compat",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Browser-compatibility/feature-maturity concern dependent on project-specific target-browser config, not generated-fragment validity."
+  },
+  {
+    "ruleId": "no-extra-selected-options",
+    "category": "forms",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, fragment-local."
+  },
+  {
+    "ruleId": "no-focusable-in-aria-hidden",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (focusable content inside aria-hidden); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-hardcoded-id",
     "category": "maintainability",
     "keptInGeneratedHtmlProfile": false,
-    "reason": "Flags any literal id attribute; Vue templates routinely hardcode static ids intentionally, and the bridge's own id-duplication detection (core.md §4.5) depends on literal ids surviving into generated output."
+    "reason": "Flags any literal id attribute; Vue templates routinely hardcode static ids intentionally, and the bridge's own id-duplication detection (core.md §4.5) depends on literal ids surviving into generated output. Renamed from no-hard-code-id (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-ineffective-attr",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Despite category:style, this flags an attribute placed on an element type where it has no effect — a content-model concern, not formatting. Renamed from ineffective-attr (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-input-file-value",
+    "category": "forms",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Attribute-value validity, fragment-local."
+  },
+  {
+    "ruleId": "no-invalid-aria-prop-value",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (aria-* prop value validity); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-invalid-attr-value",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Attribute-value validity, the rule adapter-markuplint.md §5.4's example (aria-pressed) is built around. Split from invalid-attr (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-malformed-character-reference",
+    "category": "syntax",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "markuplint:recommended-static-html re-enables this over the (empty) code-styles preset for genuinely static output; keep for the same reason. Split from character-reference (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-mismatched-aspect-ratio",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Validates img/source dimensions against the real referenced image file; a generated/virtual fragment's image paths aren't resolvable on disk (ADR-0003 criterion 1), so this would either silently false-negative or fail trying to resolve a nonexistent file."
+  },
+  {
+    "ruleId": "no-mixed-srcset-descriptors",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Attribute-value validity, fragment-local."
+  },
+  {
+    "ruleId": "no-nested-top-level-landmark",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "document-context",
+    "reason": "Landmark uniqueness/nesting correctness depends on the rest of the page the fragment is placed into. Split from landmark-roles (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-nonstandard-features",
+    "category": "compat",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Browser-compatibility/feature-maturity concern dependent on project-specific target-browser config, not generated-fragment validity."
+  },
+  {
+    "ruleId": "no-obsolete-attr",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model/spec validity. Split from deprecated-attr (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-obsolete-doctype",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Document-root-only, same as require-doctype: a fragment never has a DOCTYPE to begin with, so this half never has anything to check either. Split from doctype (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-obsolete-element",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model/spec validity. Split from deprecated-element (v5 rule-system redesign)."
   },
   {
     "ruleId": "no-orphaned-end-tag",
-    "category": "validation",
+    "category": "syntax",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
     "reason": "Well-formedness, fragment-local (core's serializer should never actually produce this, but keep it as a safety net)."
   },
   {
-    "ruleId": "no-refer-to-non-existent-id",
+    "ruleId": "no-prohibited-naming",
     "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (ARIA naming prohibition); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-pseudo-list",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local. Renamed from use-list (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-redundant-accessible-name",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local — checks the element's own accessible-name sources."
+  },
+  {
+    "ruleId": "no-redundant-aria-prop",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (aria-* prop matching implicit value); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-redundant-role",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (role matching implicit semantics); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-refer-to-non-existent-id",
+    "category": "references",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "document-context",
     "reason": "adapter-markuplint.md §5's own example: aria-controls/for/href=\"#id\" may reference an id outside the current fragment."
   },
   {
-    "ruleId": "no-use-event-handler-attr",
-    "category": "maintainability",
+    "ruleId": "no-restricted-attr",
+    "category": "attributes",
     "keptInGeneratedHtmlProfile": true,
-    "applicability": "source-representation",
-    "reason": "adapter-markuplint.md §5's own example: a Vue @click synthesized into onclick=\"dummy-fn\" (core.md §5.3) is indistinguishable from a real source onclick by looking at the HTML string alone; the analyzer suppresses this using core's synthetic provenance (core.md §5.4), not the adapter."
+    "applicability": "html-semantics",
+    "reason": "Purely user-defined denylist (disallowAttrs); never fires unless configured, so enabling it by default is harmless. Split from invalid-attr (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-restricted-element",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity. Renamed from disallowed-element (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-skipped-heading-level",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "document-context",
+    "reason": "Whether heading nesting is sequential depends on where the fragment is inserted into a parent document (monorepo.md §6.5). Renamed from heading-levels (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-stray-head-or-body-tag",
+    "category": "syntax",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Document-root-only: concerns a stray <head>/<body> tag, meaningless for a fragment that never contains a <head>/<body> (monorepo.md §6.5)."
+  },
+  {
+    "ruleId": "no-table-cell-overlap",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local. Split from table-row-column-alignment (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-table-span-overflow",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local. Split from table-row-column-alignment (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-unclosed-element-at-eof",
+    "category": "syntax",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Well-formedness, fragment-local (like no-orphaned-end-tag, a safety net the serializer should normally avoid triggering)."
+  },
+  {
+    "ruleId": "no-unescaped-char",
+    "category": "syntax",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "markuplint:recommended-static-html re-enables this over the (empty) code-styles preset for genuinely static output; keep for the same reason. Split from character-reference (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-unknown-attr",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Attribute-name validity. Split from invalid-attr (v5 rule-system redesign); the rule adapter-markuplint.md §5.4's example (aria-pressed) is built around this family."
+  },
+  {
+    "ruleId": "no-unknown-role",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (role existence); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "no-unpaired-srcset-sizes",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Attribute-value validity, fragment-local."
+  },
+  {
+    "ruleId": "no-unsupported-browser-features",
+    "category": "compat",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Browser-compatibility concern dependent on project-specific browserslist config this adapter doesn't provide, not generated-fragment validity."
   },
   {
     "ruleId": "permitted-contents",
-    "category": "validation",
+    "category": "structure",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
     "reason": "Content-model validity, fragment-local."
   },
   {
+    "ruleId": "permitted-roles",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (role permitted on the element); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
     "ruleId": "placeholder-label-option",
-    "category": "validation",
+    "category": "forms",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
     "reason": "Content-model validity, fragment-local."
+  },
+  {
+    "ruleId": "progress-value-bounds",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Attribute-value validity, fragment-local (like meter-value-bounds)."
   },
   {
     "ruleId": "require-accessible-name",
@@ -209,51 +599,134 @@
     "reason": "A11y content-model, fragment-local."
   },
   {
+    "ruleId": "require-adjacent-popover",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "A11y content-model, fragment-local. Renamed from neighbor-popovers (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "require-ancestor",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "document-context",
+    "reason": "A required ancestor may exist outside the current fragment, like landmark-roles/no-refer-to-non-existent-id."
+  },
+  {
+    "ruleId": "require-aria-prop",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (required aria-* props for a role); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "require-attr",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content-model validity, fragment-local. Renamed from required-attr (v5 rule-system redesign)."
+  },
+  {
     "ruleId": "require-datetime",
-    "category": "validation",
+    "category": "attributes",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
     "reason": "Attribute-value validity, fragment-local."
   },
   {
-    "ruleId": "required-attr",
-    "category": "validation",
+    "ruleId": "require-dialog-autofocus",
+    "category": "a11y",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
-    "reason": "Content-model validity, fragment-local."
+    "reason": "A11y content-model, fragment-local — checks the dialog's own descendants."
   },
   {
-    "ruleId": "required-element",
-    "category": "validation",
+    "ruleId": "require-doctype",
+    "category": "structure",
+    "keptInGeneratedHtmlProfile": false,
+    "reason": "Document-root-only: a component fragment is never a full document (monorepo.md §6.5) and never carries a DOCTYPE, so this would fire on every single fragment. Split from doctype (v5 rule-system redesign; renamed from the old doctype rule's presence-check half)."
+  },
+  {
+    "ruleId": "require-element",
+    "category": "structure",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
-    "reason": "Content-model validity; its document-root use (head>meta[charset]) only fires via a nodeRule selector that never matches a fragment lacking <head>, so no separate disable is needed."
+    "reason": "Content-model validity; its document-root use (head>meta[charset]) only fires via a nodeRule selector that never matches a fragment lacking <head>, so no separate disable is needed. Renamed from required-element (v5 rule-system redesign)."
   },
   {
-    "ruleId": "required-h1",
+    "ruleId": "require-end-tag",
+    "category": "style",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "markuplint:recommended-static-html re-enables this; matches core.md §6.2's guarantee that non-void elements always get an explicit end tag. Renamed from end-tag (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "require-h1",
     "category": "a11y",
     "keptInGeneratedHtmlProfile": false,
-    "reason": "Document-root-only: a fragment legitimately may have zero h1 elements because the h1 lives in the surrounding page (monorepo.md §6.5)."
+    "reason": "Document-root-only: a fragment legitimately may have zero h1 elements because the h1 lives in the surrounding page (monorepo.md §6.5). Split from required-h1 (v5 rule-system redesign; the missing-h1 half)."
   },
   {
-    "ruleId": "table-row-column-alignment",
+    "ruleId": "require-landmark-label",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "document-context",
+    "reason": "Landmark uniqueness/labeling correctness depends on the rest of the page the fragment is placed into. Split from landmark-roles (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "require-owned-elements",
     "category": "a11y",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
-    "reason": "A11y content-model, fragment-local."
+    "reason": "ARIA attribute-value/role validity, fragment-local (required owned elements for a role); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
   },
   {
-    "ruleId": "use-list",
+    "ruleId": "require-parent-role",
     "category": "a11y",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
-    "reason": "A11y content-model, fragment-local."
+    "reason": "ARIA attribute-value/role validity, fragment-local (required parent role); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
   },
   {
-    "ruleId": "wai-aria",
+    "ruleId": "role-supports-aria-prop",
     "category": "a11y",
     "keptInGeneratedHtmlProfile": true,
     "applicability": "html-semantics",
-    "reason": "ARIA attribute-value validity, fragment-local; adapter-markuplint.md §6's aria-pressed example."
+    "reason": "ARIA attribute-value/role validity, fragment-local (aria-* prop support per role); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "sizes-auto-requires-lazy-loading",
+    "category": "attributes",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Attribute-value validity, fragment-local."
+  },
+  {
+    "ruleId": "tab-requires-tabpanel",
+    "category": "a11y",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "ARIA attribute-value/role validity, fragment-local (tab role requiring an owned tabpanel); adapter-markuplint.md §6's aria-pressed example now reports under no-invalid-aria-prop-value. Split from wai-aria (v5 rule-system redesign)."
+  },
+  {
+    "ruleId": "usemap-references-map",
+    "category": "references",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "document-context",
+    "reason": "May reference a map element outside the current fragment, like no-refer-to-non-existent-id."
+  },
+  {
+    "ruleId": "valid-importmap",
+    "category": "syntax",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content validity of a <script type=\"importmap\"> element's own body, fragment-local."
+  },
+  {
+    "ruleId": "valid-speculation-rules",
+    "category": "syntax",
+    "keptInGeneratedHtmlProfile": true,
+    "applicability": "html-semantics",
+    "reason": "Content validity of a <script type=\"speculationrules\"> element's own body, fragment-local."
   }
 ]

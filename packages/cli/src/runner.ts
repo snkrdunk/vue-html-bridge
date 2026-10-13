@@ -208,6 +208,12 @@ export async function runCli(options: RunCliOptions): Promise<RunCliResult> {
 
       let result;
       try {
+        // Keep this on stderr so --format ndjson remains machine-readable.
+        // It intentionally sits immediately before analyze(), whose cache-miss
+        // path starts variant generation synchronously.
+        if (options.verbose === true) {
+          options.notice(`Generating variants for "${relPath}"...\n`);
+        }
         result = await analyzer.analyze({
           uri: toFileUri(absolutePath),
           filename: absolutePath,

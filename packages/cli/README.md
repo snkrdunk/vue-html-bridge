@@ -31,7 +31,9 @@ src/components/Menu.vue:6:27 error no-refer-to-non-existent-id
 
 By default, only error and warning diagnostics are shown and counted. Pass
 `--verbose` to include info and hint diagnostics as well; the same filtering
-applies to text and NDJSON output and to `--fail-on` evaluation.
+applies to text and NDJSON output and to `--fail-on` evaluation. It also logs
+each workspace-relative filename to stderr immediately before its variants are
+generated, which helps identify the input responsible for a memory failure.
 
 With no positional arguments, the `include` setting (default `**/*.vue`,
 relative to `--workspace-root`, default the current directory) is used

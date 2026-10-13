@@ -280,7 +280,7 @@ describe("--validator-setting parsing (cli.md §4.3)", () => {
   it("supports a multi-segment dotted path", () => {
     const result = parseArgv([
       "--validator-setting",
-      "markuplint.rules.id-duplication=false",
+      "markuplint.rules.no-duplicate-id=false",
     ]);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
@@ -288,7 +288,7 @@ describe("--validator-setting parsing (cli.md §4.3)", () => {
       {
         kind: "set-setting",
         entryKey: "markuplint",
-        path: ["rules", "id-duplication"],
+        path: ["rules", "no-duplicate-id"],
         value: false,
       },
     ]);

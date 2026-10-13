@@ -68,7 +68,7 @@ export function classifyApplicability(
  * config source in Markuplint's own merge order
  * (`defaultConfig < configFile < config`), matching §5's "Markuplint
  * defaults" tier. `markuplint:recommended-static-html` itself sets some
- * rules (e.g. `id-duplication`, inherited from its own `html-standard`/`a11y`
+ * rules (e.g. `no-duplicate-id`, inherited from its own `html-standard`/`a11y`
  * extends) that a real project config may legitimately want to turn off; if
  * this baseline were folded into the `config` overlay object instead (as an
  * earlier version of this adapter did), Markuplint's merge order would put

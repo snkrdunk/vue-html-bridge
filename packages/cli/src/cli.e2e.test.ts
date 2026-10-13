@@ -281,9 +281,9 @@ describe("CLI e2e: text output (cli.md §9 item 6, real fixture)", () => {
 // plan.md "Custom-directive attribute value modeling ('Plan B')" / ADR-0010:
 // end-to-end proof that settings-file -> CLI -> analyzer -> core wiring
 // resolves a declared customDirectives mapping and makes the resulting
-// required-attr false positive disappear.
+// require-attr false positive disappear.
 describe("CLI e2e: customDirectives settings (plan.md, ADR-0010)", () => {
-  it("a declared customDirectives mapping resolves v-src's value, making the required-attr false positive disappear", async () => {
+  it("a declared customDirectives mapping resolves v-src's value, making the require-attr false positive disappear", async () => {
     const root = await tempWorkspace();
     const fixtureSource = await readFile(
       CUSTOM_DIRECTIVE_IMG_SRC_FIXTURE,
@@ -295,7 +295,7 @@ describe("CLI e2e: customDirectives settings (plan.md, ADR-0010)", () => {
     const baselineResult = await baseline.run();
     expect(baselineResult).toEqual({ interrupted: false, exitCode: 1 });
     const baselineText = baseline.stdout.join("");
-    expect(baselineText).toContain("required-attr");
+    expect(baselineText).toContain("require-attr");
     expect(baselineText).toContain("custom-directive-not-modeled");
 
     await writeFile(
@@ -309,7 +309,7 @@ describe("CLI e2e: customDirectives settings (plan.md, ADR-0010)", () => {
     const configuredResult = await configured.run();
     expect(configuredResult).toEqual({ interrupted: false, exitCode: 0 });
     const configuredText = configured.stdout.join("");
-    expect(configuredText).not.toContain("required-attr");
+    expect(configuredText).not.toContain("require-attr");
     expect(configuredText).not.toContain("custom-directive-not-modeled");
     expect(configuredText).not.toContain("custom-directive-value-unresolved");
   });
@@ -323,27 +323,27 @@ describe("CLI e2e: --untrusted (cli.md §5, §9 item 12)", () => {
     const root = await tempWorkspace();
     await writeFile(
       join(root, ".markuplintrc"),
-      JSON.stringify({ rules: { "id-duplication": false } }),
+      JSON.stringify({ rules: { "no-duplicate-id": false } }),
     );
     await writeFile(join(root, "Dup.vue"), DUPLICATE_ID_TEMPLATE);
 
     const { stdout, run } = io({ argv: ["--untrusted"], cwd: root });
     const result = await run();
     expect(result.interrupted).toBe(false);
-    expect(stdout.join("")).toContain("id-duplication");
+    expect(stdout.join("")).toContain("no-duplicate-id");
   });
 
   it("a trusted run (the default) honors discovered workspace validator config", async () => {
     const root = await tempWorkspace();
     await writeFile(
       join(root, ".markuplintrc"),
-      JSON.stringify({ rules: { "id-duplication": false } }),
+      JSON.stringify({ rules: { "no-duplicate-id": false } }),
     );
     await writeFile(join(root, "Dup.vue"), DUPLICATE_ID_TEMPLATE);
 
     const { stdout, run } = io({ argv: [], cwd: root });
     await run();
-    expect(stdout.join("")).not.toContain("id-duplication");
+    expect(stdout.join("")).not.toContain("no-duplicate-id");
   });
 
   it("host-neutral settings (exclude) still apply while untrusted", async () => {

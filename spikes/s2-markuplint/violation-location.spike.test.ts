@@ -82,7 +82,7 @@ async function firstMatchingViolation(
 describe("S2 criterion 4: violation line/col/raw semantics", () => {
   it("line/col are 1-based, and CRLF counts as a single line break", async () => {
     const html = '<p>ok</p>\r\n<img src="a.png">';
-    const violation = await firstMatchingViolation(html, "required-attr");
+    const violation = await firstMatchingViolation(html, "require-attr");
     expect(violation.line).toBe(2);
     expect(violation.col).toBe(1);
     const range = toUtf16Range(html, violation);
@@ -92,7 +92,7 @@ describe("S2 criterion 4: violation line/col/raw semantics", () => {
 
   it("col counts UTF-16 code units across an emoji surrogate pair, not Unicode code points", async () => {
     const html = '<p>\u{1F600}<img src="a.png"></p>'; // "<p>" + 😀 (2 UTF-16 units) + "<img..."
-    const violation = await firstMatchingViolation(html, "required-attr");
+    const violation = await firstMatchingViolation(html, "require-attr");
     expect(violation.line).toBe(1);
     // "<p>" = 3 code units (cols 1-3), emoji = 2 code units (cols 4-5), "<img" starts at col 6.
     // If Markuplint counted Unicode code points instead, this would be col 5.
@@ -103,7 +103,7 @@ describe("S2 criterion 4: violation line/col/raw semantics", () => {
 
   it("col counts a combining mark as its own UTF-16 code unit (not 1 grapheme)", async () => {
     const html = 'é<img src="a.png">'; // "e" + COMBINING ACUTE ACCENT (2 code units) + "<img..."
-    const violation = await firstMatchingViolation(html, "required-attr");
+    const violation = await firstMatchingViolation(html, "require-attr");
     expect(violation.col).toBe(3);
     const range = toUtf16Range(html, violation);
     expect(html.slice(range!.start, range!.end)).toBe(violation.raw);
@@ -111,7 +111,7 @@ describe("S2 criterion 4: violation line/col/raw semantics", () => {
 
   it("raw can span multiple lines; start + raw.length (not line-relative math) still yields the correct end", async () => {
     const html = '<img\n  src="a.png"\n>';
-    const violation = await firstMatchingViolation(html, "required-attr");
+    const violation = await firstMatchingViolation(html, "require-attr");
     expect(violation.raw).toBe(html); // the whole multi-line opening tag
     const range = toUtf16Range(html, violation);
     expect(range).toEqual({ start: 0, end: html.length });
