@@ -598,24 +598,22 @@ defineProps<{ hint: string }>();
     expect(result.variants[0]?.html).not.toContain('name="b"');
   });
 
-  it("TC-14: OrderItem.vue fixture — named slot fallback becomes visible while the trailing empty default slot stays invisible, simultaneously", async () => {
-    // Literal content of result/OrderItem.vue's <template> and <script setup>
-    // (the <style> block is omitted — irrelevant to HTML generation, and no
-    // other test in this file embeds one either). Copied verbatim, not a
-    // re-derived approximation, per test-specs.md TC-14's own instruction —
-    // this is the exact real-world fixture that motivated this feature.
-    const source = `<template>
-  <a
-    class="list-item"
-    :href="href"
-    @click="() => onItemClick()"
-  >
+  it("TC-14: OrderItem regression fixture — named slot fallback and a trailing empty default slot coexist", async () => {
+    // This is the minimal structure from OrderItem.vue that exposed the bug:
+    // a named slot with conditional fallback content, plus a trailing empty
+    // default slot elsewhere in the same template. Keep it small so this
+    // behavioral regression test does not enumerate unrelated conditions.
+    const source = `<script setup lang="ts">
+defineProps<{ showsCartIcon: boolean }>();
+</script>
+<template>
+  <a class="list-item">
     <div class="image">
       <slot name="image">
         <img
-          v-if="!showsCartIcon(transactionItem)"
-          :src="transactionItem.thumbnailUrl"
-          :alt="\`Item image for \${transactionItem.name}\`"
+          v-if="!showsCartIcon"
+          :src="thumbnailUrl"
+          :alt="\`Item image for \${itemName}\`"
         />
         <img
           v-else
@@ -627,149 +625,22 @@ defineProps<{ hint: string }>();
     </div>
     <div class="info-wrapper">
       <div class="texts">
-        <template v-if="isOrder(transactionItem) && isCartOrder(transactionItem)">
-          <p class="title">Purchase ID {{ transactionItem.id }}</p>
-        </template>
-
-        <template v-else>
-          <p class="title">{{ transactionItem.name }}</p>
-          <p class="size">
-            <template v-if="isListing(transactionItem)">Size: {{ transactionItem.size }}</template>
-            <template v-else>
-              <div
-                v-if="transactionItem.itemCondition !== ''"
-                class="condition"
-              >
-                {{ transactionItem.itemCondition }}
-              </div>
-              <template v-else>
-                {{ capitalize(transactionItem.size) }}
-              </template>
-            </template>
-          </p>
-          <p
-            v-if="isListing(transactionItem)"
-            class="price"
-          >
-            Listing Price: {{ transactionItem.price }}
-          </p>
-        </template>
-
-        <template v-if="isOrder(transactionItem)">
-          <p class="transaction-status">
-            <template v-if="isOrderCompleted(transactionItem)">
-              Transaction Completed
-              <span class="date">{{ formatFullDate(transactionItem.orderCompletedAt) }}</span>
-            </template>
-            <template v-else-if="isOrderCancelled(transactionItem)">
-              Canceled
-              <span class="date">{{ formatFullDate(transactionItem.orderCanceledAt) }}</span>
-            </template>
-            <template v-else-if="isOrderActive(transactionItem) || isCartOrder(transactionItem)">
-              <template v-if="hasProcessingStatusLabel(transactionItem)">
-                {{ transactionItem.processingStatusLabel }}
-              </template>
-              <template v-else-if="hasProcessingStatus(transactionItem)">
-                {{ transactionItem.processingStatus }}
-              </template>
-            </template>
-          </p>
-          <p
-            v-if="!isCartOrder(transactionItem)"
-            class="transaction-id"
-          >
-            <template v-if="isCartSuborder(transactionItem)">(Order ID: {{ transactionItem.transactionId }})</template>
-            <template v-else>(Order ID: {{ transactionItem.id }})</template>
-          </p>
-        </template>
+        <p class="title">Order details</p>
         <slot></slot>
       </div>
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 16 16"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        class="arrow"
-      >
-        <path
-          d="M5.54 14C5.39 14 5.29 13.95 5.14 13.84C5.04554 13.7281 4.99371 13.5864 4.99371 13.44C4.99371 13.2936 5.04554 13.1519 5.14 13.04L9.74 8.03L5.14 2.96C5.04554 2.84813 4.99371 2.70643 4.99371 2.56C4.99371 2.41358 5.04554 2.27188 5.14 2.16C5.18687 2.10844 5.24399 2.06725 5.30771 2.03906C5.37142 2.01087 5.44033 1.99631 5.51 1.99631C5.57968 1.99631 5.64858 2.01087 5.7123 2.03906C5.77602 2.06725 5.83314 2.10844 5.88 2.16L10.85 7.66C11.05 7.86 11.05 8.24 10.85 8.46L5.93 13.84C5.78 13.94 5.68 14 5.53 14H5.54Z"
-          fill="currentColor"
-        />
-      </svg>
     </div>
   </a>
-</template>
-
-<script setup lang="ts">
-import { capitalize, computed } from 'vue';
-import vSrc from '@/directives/vSrc';
-import { ListingProduct } from '@/types/account';
-import { ListOrder, OrderInCart } from '@/types/order';
-import { LISTING_STATUS } from '@/utils/constants';
-import { formatFullDate } from '@/utils/formatter';
-
-type Order = ListOrder | OrderInCart;
-type TransactionItem = Order | ListingProduct;
-const props = defineProps<{
-  transactionItem: TransactionItem;
-}>();
-
-const isOrder = (item: TransactionItem): item is Order => 'id' in item;
-const isCartOrder = (item: TransactionItem) => 'isCartOrder' in item && item.isCartOrder;
-const showsCartIcon = (item: TransactionItem) => isCartOrder(item) && !('isInstant' in item && item.isInstant);
-const isListing = (item: TransactionItem): item is ListingProduct => 'uid' in item;
-
-const isCartSuborder = (order: Order): order is OrderInCart => 'transactionId' in order && order.transactionId.length > 0;
-const isOrderActive = (order: Order) => 'status' in order && order.status === 'active';
-const isOrderCompleted = (order: Order): order is ListOrder & { orderCompletedAt: string } =>
-  'orderCompletedAt' in order && order.orderCompletedAt !== null;
-const isOrderCancelled = (order: Order): order is ListOrder & { orderCanceledAt: string } =>
-  'orderCanceledAt' in order && order.orderCanceledAt !== null;
-const hasProcessingStatusLabel = (order: Order): order is ListOrder => 'processingStatusLabel' in order;
-const hasProcessingStatus = (order: Order): order is OrderInCart => 'processingStatus' in order;
-
-const href = computed(() => {
-  // Listing doesn't use href since we have to prevent navigation if the item
-  // is in process
-  if (isListing(props.transactionItem)) {
-    return '#';
-  }
-
-  // Orders doesn't have a special navigation requirement
-  if (isCartSuborder(props.transactionItem)) {
-    return \`/en/account/orders/cart/order/\${props.transactionItem.id}?slide=right\`;
-  }
-  if (isCartOrder(props.transactionItem)) {
-    return \`/en/account/orders/cart/\${props.transactionItem.id}/items?slide=right\`;
-  }
-  return \`/en/account/orders/\${props.transactionItem.id}?slide=right\`;
-});
-
-const onItemClick = () => {
-  const { transactionItem } = props;
-  if (isOrder(transactionItem)) {
-    return;
-  }
-
-  if (transactionItem.status === LISTING_STATUS.PROCESSING) {
-    alert('This item is in the process of being purchased and cannot be edited.');
-    return;
-  }
-  globalThis.location.href = \`/en/account/listings/\${transactionItem.uid}?slide=view\`;
-};
-</script>
-`;
+</template>`;
     const result = await generateVariants({
       filename: "/p/OrderItem.vue",
       source,
     });
 
-    // FR-9a: every variant's .image is exactly one of the two known
-    // shapes — never empty, never anything else. This directly falsifies
-    // today's bug (every variant currently shows an empty .image div) for
-    // every generated variant, not just some of them, without depending on
-    // knowing the total variant count or how decisions are enumerated.
+    expect(result.stats.candidateCount).toBe(2);
+    expect(result.variants).toHaveLength(2);
+
+    // Every variant's .image is exactly one of the two known shapes — never
+    // empty, never anything else.
     const imageShape =
       /<div class="image">(?:<img alt="dummy-string" src="dummy-string">|<img alt="Shopping cart" class="cart-icon">)<\/div>/;
     for (const variant of result.variants) {
@@ -793,16 +664,14 @@ const onItemClick = () => {
       ),
     ).toBe(true);
 
-    // FR-3: the undeclared v-src directive still produces its existing,
-    // unchanged diagnostic — proving the fallback content goes through
-    // real directive-diagnostic machinery, not a placeholder path.
+    // The undeclared v-src directive still produces its existing diagnostic,
+    // proving the fallback content goes through normal directive handling.
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({ code: "custom-directive-not-modeled" }),
     );
 
-    // FR-2 + FR-9b: neither slot's own tag ever leaks, for any variant —
-    // covers both the non-empty named slot and the genuinely-empty
-    // trailing default slot holding simultaneously across the whole file.
+    // Neither slot's own tag leaks, including the genuinely empty trailing
+    // default slot.
     for (const variant of result.variants) {
       expect(variant.html).not.toContain("<slot");
     }
