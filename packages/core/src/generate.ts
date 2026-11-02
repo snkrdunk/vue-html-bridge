@@ -357,8 +357,9 @@ export async function generateVariants(
   if (!template) {
     diagnostics.push({
       code: "missing-template",
-      severity: "error",
-      message: "The SFC has no <template> block.",
+      severity: "warning",
+      message:
+        "The SFC has no <template> block; no HTML variants will be generated and this file will not be validated.",
       sourceRange: range(request.filename, 0, 0),
     });
     return emptyResult(started, diagnostics);

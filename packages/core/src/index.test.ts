@@ -2,6 +2,24 @@ import { describe, expect, it } from "vitest";
 import { findSourceOrigins, generateVariants } from "./index.js";
 
 describe("generateVariants", () => {
+  it("warns and generates no variants when the SFC has no template block", async () => {
+    const result = await generateVariants({
+      filename: "/p/Renderless.vue",
+      source: `<script setup>defineProps<{ label: string }>();</script>`,
+    });
+
+    expect(result.variants).toEqual([]);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "missing-template",
+        severity: "warning",
+        message: expect.stringContaining(
+          "no HTML variants will be generated and this file will not be validated",
+        ),
+      }),
+    );
+  });
+
   it("correlates a v-if and ternary attribute through one decision", async () => {
     const source = `<script setup lang="ts">
 defineProps<{ loggedIn: boolean }>();
