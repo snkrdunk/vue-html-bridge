@@ -1,5 +1,11 @@
 # vue-html-bridge
 
+## 0.3.2
+
+### Patch Changes
+
+- 754a7b6: Report SFCs without a `<template>` block as warnings. The diagnostic explains that no HTML variants are generated and the file is not validated.
+
 ## 0.3.1
 
 ### Patch Changes

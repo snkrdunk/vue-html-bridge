@@ -1,5 +1,12 @@
 # @vue-html-bridge/analyzer
 
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [754a7b6]
+  - vue-html-bridge@0.3.2
+
 ## 0.2.3
 
 ### Patch Changes
