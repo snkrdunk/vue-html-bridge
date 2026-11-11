@@ -5,6 +5,7 @@ The documents in this directory are the source of truth for the design after the
 ## Overall design
 
 - [Monorepo overall design](./monorepo.md)
+- [Architecture and the Vue model: why one analysis serves every environment](./architecture-and-vue-model.md)
 - [List of changes from the old design](./decision-changes.md)
 
 ## Per-package design
